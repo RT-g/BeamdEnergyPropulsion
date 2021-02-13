@@ -1,4 +1,4 @@
-from math import exp
+from math import exp, sqrt
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,8 +7,8 @@ from matplotlib import ticker, gridspec
 dx = 0.01e-3  # m Segment length
 dr = 0.005e-3  # m Segment length  # dr の分解能が大事っぽい
 dt = 0.1  # s すぐに淘汰される値なので意味はない。初期値
-nx = 250  # Number of position segments, xは進展方向
-nr = 500  # 2.5e-3/dr  #全長2.5 mmになるように設定
+nz = 1  # Number of position segments, xは進展方向
+nr = 1000  # 2.5e-3/dr  #全長2.5 mmになるように設定
 nt = 5000  # Number of time segments
 ng = 40  # 40  # Graphの分割数を決める値
 CFL = 0.7  # クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
@@ -67,9 +67,9 @@ p_list = []
 s_list = []
 x_list = []
 
+fig, (axL, axR) = plt.subplots(ncols=2, figsize=(10,4))
 for n1 in range(nt):
     # 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
-
     dt = 1e-8  # s
     t = t + dt  # s
     t_list.append(t * 1e6)
@@ -92,8 +92,10 @@ for n1 in range(nt):
     u_ionz_line3 = a_low * (S_laser0 * 1e9 / rho / (ss**3)) ** b_low * ss  # m/s 波頭の速度
     if u_ionz_line1 > u_ionz_line3:
         u_ionz = u_ionz_line1
+        beta = b
     else:
         u_ionz = u_ionz_line3
+        beta = b_low
     # u_ionz = a * S_laser0 ** b * 1e3  # m/s 無次元化していない波頭の速度
     x_laser0 = x_laser0 + u_ionz * dt  # m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
     x_laser = x_laser0  # m 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
@@ -101,41 +103,64 @@ for n1 in range(nt):
     # uionz_low_list.append(u_ionz_low * 1e-3)
     s_list.append(S_laser0)
     x_list.append(x_laser0 * 1e3)
+    r_list = []
+    x_lateral_list = []
+    s_lateral_list = []
+    # 進展方向の計算
+    for n2 in range(nz):
+        x = n2 * dx  # m
+#          # その位置におけるビーム半径の計算
+#          W_G = sqrt((W_G0*1e-3) ** 2+M2_G ** 2*(lamda*1e-6) ** 2*x ** 2/pi ** 2/(W_G0*1e-3) ** 2) # m
+#          W_T = sqrt((W_T0*1e-3) ** 2+M2_T ** 2*(lamda*1e-6) ** 2*x ** 2/pi ** 2/(W_T0*1e-3) ** 2) # m
+#          # 波頭の値
+#          S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3 #  GW/m ** 2 波頭のレーザー強度
+#          u_ionz = a*(S_laser0) ** b*10 ** 3 # m/s 波頭の速度
+#          x_laser0 = x_laser0+u_ionz*dt # 電離波面の波頭進展位置=Laserによって加熱される最初の位置
+#          x_laser = x_laser0 # 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
 
+        # 半径方向の計算
+        for n3 in range(nr):
+            r = n3 * dr  # m
+            # ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
+            G_r = A_G * exp(-2 * (r * 1e3 / sqrt(2) / sigma_G1) ** 4) + B_G * exp(-2 * (r * 1e3 / sqrt(2) / sigma_G2) ** 2)
+            T_r = A_T * exp(-2 * (r * 1e3 / sqrt(2) / sigma_T1) ** 4) + B_T * exp(-2 * (r * 1e3 / sqrt(2) / sigma_T2) ** 2)
+            S_laser = R_peak * Power_laser / 4 / W_G / W_T * G_r * T_r * 1e-3  # 局所レーザー強度, GW/m2
+            x_laser = x_laser - sqrt((S_laser0 / S_laser) ** (2 * beta / (1 - beta)) - 1) * dr  # m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値
 
-#     # 進展方向の計算
-#     for n2 in range(nz):
-#         x = n2 * dx  # m
-# #          # その位置におけるビーム半径の計算
-# #          W_G = sqrt((W_G0*1e-3) ** 2+M2_G ** 2*(lamda*1e-6) ** 2*x ** 2/pi ** 2/(W_G0*1e-3) ** 2) # m
-# #          W_T = sqrt((W_T0*1e-3) ** 2+M2_T ** 2*(lamda*1e-6) ** 2*x ** 2/pi ** 2/(W_T0*1e-3) ** 2) # m
-# #          # 波頭の値
-# #          S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3 #  GW/m ** 2 波頭のレーザー強度
-# #          u_ionz = a*(S_laser0) ** b*10 ** 3 # m/s 波頭の速度
-# #          x_laser0 = x_laser0+u_ionz*dt # 電離波面の波頭進展位置=Laserによって加熱される最初の位置
-# #          x_laser = x_laser0 # 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
-
-#         # 半径方向の計算
-#         for n3 in range(nr):
-#             r = n3 * dr  # m
-#             # ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
-#             G_r = A_G * exp(-2 * (r * 1e3 / sqrt(2) / sigma_G1) ** 4) + B_G * exp(-2 * (r * 1e3 / sqrt(2) / sigma_G2) ** 2)
-#             T_r = A_T * exp(-2 * (r * 1e3 / sqrt(2) / sigma_T1) ** 4) + B_T * exp(-2 * (r * 1e3 / sqrt(2) / sigma_T2) ** 2)
-#             S_laser = R_peak * Power_laser / 4 / W_G / W_T * G_r * T_r * 1e-3  # 局所レーザー強度, GW/m2
-#             x_laser = x_laser - sqrt((S_laser0 / S_laser) ** (2 * b / (1 - b)) - 1) * dr  # m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値
-#             # disp(x_laser*1e3)
-
-#             #  Input Power Definition
-#             #  加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい
-#             #  x_laserが0以下の時は加熱領域が0とする
-#             if x_laser > 0:
-#                 if x > x_laser - l and x < x_laser:
-#                     w = eta * S_laser / l * 1e9  # W/m3
-#                 else:
-#                     w = 0
-#                 end
-#             else
-#                 w = 0
+            #  Input Power Definition
+            #  加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい
+            #  x_laserが0以下の時は加熱領域が0とする
+            if x_laser > 0:
+                if x > x_laser - l and x < x_laser:
+                    w = eta * S_laser / l * 1e9  # W/m3
+                else:
+                    w = 0
+            else:
+                w = 0
+            if round(t * 1e6, 2) in [0.67, 0.87, 1.27, 1.56, 1.83]:
+                r_list.append(round(r * 1e3, 3))
+                x_lateral_list.append(round((x_laser - x_laser0) * 1e3, 2))
+                s_lateral_list.append(round(S_laser,2))
+        if round(t * 1e6, 2) in [0.67, 0.87, 1.27, 1.56, 1.83]:
+            r_minus = list(map(lambda x: x * -1, r_list))
+            r_list = list(reversed(r_minus)) + r_list
+            x_lateral_list = list(reversed(x_lateral_list)) + x_lateral_list
+            s_lateral_list = list(reversed(s_lateral_list)) + s_lateral_list
+            axL.plot(r_list, x_lateral_list, label=f't = {round(t*1e6,2)}')
+            axR.plot(r_list, s_lateral_list, label=f't = {round(t*1e6,2)}')
+axL.set_xlabel('r')
+axL.set_ylabel('x')
+axL.set_xlim(-2, 2)
+axL.set_ylim(-4, 0)
+axR.set_xlabel('r')
+axR.set_ylabel('S')
+axR.set_xlim(-2, 2)
+axL.set_aspect('equal')
+# axR.set_ylim(0, 500)
+axL.legend(loc='upper right')  # 凡例
+axR.legend(loc='upper right')  # 凡例
+plt.savefig('波面形状とレーザープロファイル履歴.png')
+fig.show()
 
 #figure()でグラフを表示する領域をつくり，figというオブジェクトにする．
 fig = plt.figure(figsize=(10,8))

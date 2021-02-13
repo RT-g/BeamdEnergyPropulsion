@@ -18,6 +18,7 @@ open(vp);
 open(vt);
 open(vu);
 open(vv);
+
 % Computation Values
 dx = 0.01e-3; % m Segment length 
 dr = 0.005e-3; % m Segment length % dr の分解能が大事っぽい
@@ -32,20 +33,7 @@ select_gas = 'air';
 
 % Physical Values
 
-%f = 170e9;
-%mu_0 = 1.2566370614e-6; 
-%epsilon_0 = 8.854187817e-12; 
-%c = 1./sqrt(mu_0*epsilon_0);
-%lambda_0 = c/f;
-helium_a = 0.004519362;
-helium_b = 1.10603162;
-argon_a = 1.18;
-argon_b = 0.21;
-air_a = 0.354446826;
-air_b = 0.379696856;
-m_air = 28.966;
-m_argon = 40.0;
-m_helium = 4.0;
+% Laser Values
 A_G = 0.224517656;
 B_G = 0.77548;
 sigma_G1 = 0.84473; %mm
@@ -61,42 +49,31 @@ W_G0 = 1.7;%単位はmm
 W_T0 = 2.0;
 R_peak = 2.13;
 
+% Values specific to gas
+filename = '../../data/value.csv';
+opts = detectImportOptions(filename);
+T = readtable(filename, 'ReadRowNames', true);
+m = T(select_gas,'m').Variables;
+gamma = T(select_gas, 'gamma').Variables; % 本当はガンマ関数があるのでこの変数名はよくない
+eta_trans = T(select_gas, 'eta_trans').Variables;
+slope = T(select_gas, 'a').Variables;
+intercept = T(select_gas, 'b').Variables;
+slope_low = T(select_gas, 'a_low').Variables;
+intercept_low = T(select_gas, 'b_low').Variables;
+a = T(select_gas, 'speed of sound').Variables;
 R_0 = 8314.0;
-
-if (strcmp(select_gas,'helium')==1)
-    m = m_helium;
-    gamma_gas = 1.67; %単原子分子
-    eta_trans = 0.54;
-    a = helium_a;
-    b = helium_b;
-    hr = 20; %Heating region
-elseif (strcmp(select_gas,'argon')==1)
-    m = m_argon;
-    gamma_gas = 1.67; %単原子分子
-    eta_trans = 0.42; 
-    a = argon_a;
-    b = argon_b;
-    hr = 20; %Heating region
-elseif (strcmp(select_gas,'air')==1)
-    m = m_air;
-    gamma_gas = 1.4; %2原子分子
-    eta_trans = 0.48;
-    a = air_a;
-    b = air_b;
-    hr = 20; %Heating region
-end
-
 R = R_0/m;
 
+% Common Values for gases
 u_ionz0 = a*524.4^b*1.2*1e3; %m/s
 P_0 = 1.013e5*1;
 T_0 = 293;
 rho_0 = P_0/R/T_0;
 u_0 = 0;
 v_0 = 0;
-gamma = gamma_gas;
-I = 0;
+
 l = 0.2e-3; %m 加熱長さ レーザーは0.2 mm
+hr = 20; %Heating region
 
 % Initial Values
 
@@ -166,11 +143,11 @@ t = 0;
 x_laser0 = 0;
 umax_x = u_ionz0;
 umax_r = u_ionz0;
-
+I = 0;
 
 for n1 = 1:nt
-    %時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
-    %レーザー強度の関数の形状に応じてクーラン数を調整
+    % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
+    % レーザー強度の関数の形状に応じてクーラン数を調整
     if (t*1e6<0.085)
         CFL=0.7;
     elseif (t*1e6<0.125)
@@ -179,42 +156,48 @@ for n1 = 1:nt
         CFL=0.9; 
     end
     
-
-    
     dt_tmp = CFL*min(dx/umax_x , dr/umax_r); %s, 計算位置>波面位置となるようにdtを決定
     dt = dt_tmp; %s
     
     t = t+dt; %s
     t_list(n1,1) = t * 1e6; %us
 
-    %レーザー強度の時間減衰(10J) 単位はMW
-    Power_laser = 8.15*exp(-0.866*t*1e6); 
-    %正確に再現すると温度などが高く出すぎる
-%     if (t*1e6<0.085)
-%         Power_laser = 287.9222823*t*1e6+0.0005175756469;
-%     elseif (t*1e6<0.125)
-%         Power_laser =-476.3277981*t*1e6+66.1043297;
-%     else
-%         Power_laser = 8.15*exp(-0.866*t*1e6); 
-%     end  
-%     uionz_list(n1,1) =a*(R_peak *Power_laser/4/W_G0/W_T0*1e3)^b; %km/s
+    % レーザー強度の時間減衰(10J) 単位はMW
+    % Power_laser = 8.15*exp(-0.866*t*1e6); 
+    % 正確に再現すると温度などが高く出すぎる
+    if (t*1e6<0.085)
+        Power_laser = 287.9222823*t*1e6+0.0005175756469;
+    elseif (t*1e6<0.125)
+        Power_laser =-476.3277981*t*1e6+66.1043297;
+    else
+        Power_laser = 8.15*exp(-0.866*t*1e6); 
+    end  
     
-    %進展方向のレーザー強度の変化を考慮しない場合のビーム半径
+    % 進展方向のレーザー強度の変化を考慮しない場合のビーム半径
     W_G = W_G0*1e-3; %m
     W_T = W_T0*1e-3; %m
-    %波頭の値
-    S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3; % GW/m^2 波頭のレーザー強度
-    u_ionz = a*(S_laser0)^b*1e3; %m/s 波頭の速度
-    x_laser0 = x_laser0+u_ionz*dt; %m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
+
+    % 波頭の値
+    S_laser0 = R_peak * Power_laser / 4 / W_G / W_T * 1e-3; % GW/m^2 波頭のレーザー強度
+    u_ionz_line1 = slope * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept * a; %m/s 波頭の速度
+    u_ionz_line3 = slope_low * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept_low * a;
+    if (u_ionz_line1 > u_ionz_line3)
+        u_ionz = u_ionz_line1 % Line1, 松井さん博論
+        b = intercept
+    else
+        u_ionz = u_ionz_line3 % Line3, 松井さん博論
+        b = intercept_low
+    x_laser0 = x_laser0 + u_ionz * dt; %m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
     x_laser = x_laser0; %m 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
+
     %進展方向の計算
     for n2 = 2:nx-1
         x = n2*dx; %m
-%         %その位置におけるビーム半径の計算
+%         % その位置におけるビーム半径の計算。大した距離ではないのであまり計算する必要はない。
 %         W_G = sqrt((W_G0*1e-3)^2+M2_G^2*(lambda*1e-6)^2*x^2/pi^2/(W_G0*1e-3)^2); %m
 %         W_T = sqrt((W_T0*1e-3)^2+M2_T^2*(lambda*1e-6)^2*x^2/pi^2/(W_T0*1e-3)^2); %m
 %         
-%         %波頭の値
+%         % 波頭の値
 %         S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3; % GW/m^2 波頭のレーザー強度
 %         u_ionz = a*(S_laser0)^b*10^3; %m/s 波頭の速度
 %         x_laser0 = x_laser0+u_ionz*dt; %電離波面の波頭進展位置=Laserによって加熱される最初の位置
@@ -223,58 +206,37 @@ for n1 = 1:nt
         %半径方向の計算
         for n3 = 2:nr-1
             r = n3*dr; %m
-            %ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
+
+            % ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
             G_r = A_G*exp(-2*(r*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r*1e3/sqrt(2)/sigma_G2)^2);
             T_r = A_T*exp(-2*(r*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r*1e3/sqrt(2)/sigma_T2)^2);
             S_laser = R_peak * Power_laser/4/W_G/W_T*G_r*T_r*1e-3; %局所レーザー強度, GW/m2
-            x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値
-            %disp(x_laser*1e3)
+            x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
             
             % Input Power Definition
             % 加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい
-            % x_laserが0以下の時は加熱領域が0とする
-            if x_laser > 0
+            % x_laserが0以下の時は加熱領域を0とする
+            if x > x_laser-l && x < x_laser
                 xr_ionz(n2,n3) = 1.5;
-                %if x < x_laser+l && x > x_laser
-                if x > x_laser-l && x < x_laser
-                    w = eta*S_laser/l *1e9; %W/m3
-                else
-                    w = 0;
-                end
+                w = eta*S_laser/l *1e9; %W/m3
             else
                 xr_ionz(n2,n3) = NaN;
                 w = 0;
             end
-            % Euler Calculation ゴドノフ法　偏微分の考え方は二通りあるがどちらがより正しいかはわからない
-            
+
+            % Euler Calculation ゴドノフ法
             rn = abs(r);
-            %rn_halfp = rn+dr/2;
-            %rn_halfm = rn-dr/2;    
-            %U1_cal(n2,n3) = U1(n2,n3) - dt/dx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dt/rn/dr*(rn_halfp*G1_half(n2,n3)-rn_halfm*G1_half(n2,n3-1)) ;
-            %U2_cal(n2,n3) = U2(n2,n3) - dt/dx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dt/rn/dr*(rn_halfp*G2_half(n2,n3)-rn_halfm*G2_half(n2,n3-1)) ;
-            %U3_cal(n2,n3) = U3(n2,n3) - dt/dx*(F3_half(n2,n3)-F3_half(n2-1,n3)) - dt/rn/dr*(rn_halfp*G3_half(n2,n3)-rn_halfm*G3_half(n2,n3-1)) + dt/rn*P(n2,n3);
-            %U4_cal(n2,n3) = U4(n2,n3) - dt/dx*(F4_half(n2,n3)-F4_half(n2-1,n3)) - dt/rn/dr*(rn_halfp*G4_half(n2,n3)-rn_halfm*G4_half(n2,n3-1)) + w*dt;
             U1_cal(n2,n3) = U1(n2,n3) - dt/dx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dt/dr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
             U2_cal(n2,n3) = U2(n2,n3) - dt/dx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dt/dr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;
             U3_cal(n2,n3) = U3(n2,n3) - dt/dx*(F3_half(n2,n3)-F3_half(n2-1,n3)) - dt/dr*(G3_half(n2,n3)-G3_half(n2,n3-1))+dt/rn*(P(n2,n3)-G3(n2,n3));
             U4_cal(n2,n3) = U4(n2,n3) - dt/dx*(F4_half(n2,n3)-F4_half(n2-1,n3)) - dt/dr*(G4_half(n2,n3)-G4_half(n2,n3-1))-dt/rn*G4(n2,n3) + w*dt;
 
         end
-    end
-%     figure()
-%     view(135,45)
-%     sur0 = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,U3_cal);
-%     set(sur0,'LineStyle','none')
-%     title('v Colormap / m/s');
-%     ylabel('Position z /mm');
-%     xlabel('Position r /mm');
-%     %([1 120]);
-%     frame = getframe(gcf);
-    
+    end    
     
     % Boundary Conditions
     
-    %Left(回転軸)
+    % Left(回転軸)
     for i = 2:nx-1
         %Ttemp_x(i) = (gamma-1)*(U4_cal(i,2)-(1/2)*(U2_cal(i,2).^2+U3_cal(i,2).^2)./U1_cal(i,2))./U1_cal(i,2)/R; % Temperature to set the condition
         U1_cal(i,1) = U1_cal(i,2); 
@@ -282,8 +244,6 @@ for n1 = 1:nt
         U3_cal(i,1) = 0; %中心ではur=0のはず
         U4_cal(i,1) = U4_cal(i,2);
     end
-    
-    
     
     % Right(流出)
     for i = 2:nx-1
@@ -295,7 +255,6 @@ for n1 = 1:nt
     end
     
     % Top(光軸方向)流出
-    
     for i = 2:nr-1
         Ttemp_r(i) = (gamma-1)*(U4_cal(nx-1,i)-(1/2)*(U2_cal(nx-1,i).^2+U3_cal(nx-1,i).^2)./U1_cal(nx-1,i))./U1_cal(nx-1,i)/R; % Temperature to set the condition
         U1_cal(nx,i) = U1_cal(nx-1,i); %P_0/R./Ttemp_r(i);
@@ -303,7 +262,6 @@ for n1 = 1:nt
         U3_cal(nx,i) = U3_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
         U4_cal(nx,i) = U4_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
     end
-    
     
     % Plate(アルミ板)
     U1_cal(1,:) = U1_cal(2,:);
