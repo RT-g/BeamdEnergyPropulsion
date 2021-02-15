@@ -12,10 +12,10 @@ mkdir(base_dir, 'U');
 mkdir(base_dir, 'V');
 
 tic
-vp=VideoWriter('movie_Pressure.avi');
-vt=VideoWriter('movie_Temperature.avi');
-vu=VideoWriter('movie_Velocity_u.avi');
-vv=VideoWriter('movie_Velocity_v.avi');
+vp=VideoWriter(fullfile(base_dir,'movie_Pressure.avi'));
+vt=VideoWriter(fullfile(base_dir,'movie_Temperature.avi'));
+vu=VideoWriter(fullfile(base_dir,'movie_Velocity_u.avi'));
+vv=VideoWriter(fullfile(base_dir,'movie_Velocity_v.avi'));
 open(vp);
 open(vt);
 open(vu);
@@ -90,7 +90,7 @@ x_list = (1:nx) * dx * 1e3; % mm
 r_list = (1:nr) * dr * 1e3; % mm
 uionz_list = zeros(nt,1);
 xionz = zeros(nr,1);
-t_txt = zeros(nt/ng,1);
+t_txt = zeros(nt,1);
 
 P(:,:) = P_0;
 Pplateau(:,:) = P_0;
@@ -475,7 +475,7 @@ for n1 = 1:nt
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        %zlim([1 1*1e4]);
+        zlim([1 1*1e4]);
         frame = getframe(gcf);
         writeVideo(vt,frame);
         
@@ -523,7 +523,7 @@ close(vt);
 close(vu);
 close(vv);
 
-writematrix(t_txt,fullfile(base_dir,'time_scale.csv'))
+writematrix(t_list,fullfile(base_dir,'time_scale.csv'))
 writematrix(x_list,fullfile(base_dir,'x_scale.csv'))
 writematrix(r_list,fullfile(base_dir,'r_scale.csv'))
 writematrix(Pplateau/1e5,fullfile(base_dir,'plateau_pressure_data.csv'))
