@@ -4,11 +4,12 @@
 clear
 close all
 
-mkdir 'Pressure\';
-mkdir 'Temperature';
-mkdir 'U';
-mkdir 'V';
-        
+base_dir = fullfile(pwd, datetime('Format', 'yyMMddHHmmss'));
+mkdir base_dir 'Pressure';
+mkdir base_dir 'Temperature';
+mkdir base_dir 'U';
+mkdir base_dir 'V';
+
 tic
 vp=VideoWriter('movie_Pressure.avi');
 vt=VideoWriter('movie_Temperature.avi');
@@ -52,15 +53,15 @@ R_peak = 2.13;
 % Values specific to gas
 filename = '../../data/value.csv';
 opts = detectImportOptions(filename);
-T = readtable(filename, 'ReadRowNames', true);
-m = T(select_gas,'m').Variables;
-gamma = T(select_gas, 'gamma').Variables; % 本当はガンマ関数があるのでこの変数名はよくない
-eta_trans = T(select_gas, 'eta_trans').Variables;
-slope = T(select_gas, 'a').Variables;
-intercept = T(select_gas, 'b').Variables;
-slope_low = T(select_gas, 'a_low').Variables;
-intercept_low = T(select_gas, 'b_low').Variables;
-a = T(select_gas, 'speed of sound').Variables;
+gas_table = readtable(filename, 'ReadRowNames', true);
+m = gas_table(select_gas,'m').Variables;
+gamma = gas_table(select_gas, 'gamma').Variables; % 本当はガンマ関数があるのでこの変数名はよくない
+eta_trans = gas_table(select_gas, 'eta_trans').Variables;
+slope = gas_table(select_gas, 'a').Variables;
+intercept = gas_table(select_gas, 'b').Variables;
+slope_low = gas_table(select_gas, 'a_low').Variables;
+intercept_low = gas_table(select_gas, 'b_low').Variables;
+a = gas_table(select_gas, 'speed of sound').Variables;
 R_0 = 8314.0;
 R = R_0/m;
 
@@ -81,13 +82,14 @@ P = zeros(nx,nr);
 Pplateau = zeros(nt,nr);
 u = zeros(nx,nr);
 v = zeros(nx,nr);
-Ttemp = zeros(nx,nr);
+T = zeros(nx,nr);
 rho = zeros(nx,nr);
 H = zeros(nx,nr);
-xr_ionz = zeros(nx,nr);
-xr_ionz(:,:) = NaN;
 t_list = zeros(nt,1);
+x_list = (1:nx) * dx * 1e3 % mm
+r_list = (1:nr) * dr * 1e3 % mm
 uionz_list = zeros(nt,1);
+xionz = zeros(nr,1);
 t_txt = zeros(nt/ng,1);
 
 P(:,:) = P_0;
@@ -96,11 +98,11 @@ u(:,:) = u_0;
 v(:,:) = v_0;
 rho(:,:) = P_0/R/T_0;
 
-Ttemp(:,:) = T_0;
-Ttemp_x = zeros(1,nx);
-Ttemp_r = zeros(1,nr);
-Ttemp_x(1,:) = T_0;
-Ttemp_r(1,:) = T_0;
+T(:,:) = T_0;
+T_x = zeros(1,nx);
+T_r = zeros(1,nr);
+T_x(1,:) = T_0;
+T_r(1,:) = T_0;
 
 % Vector of states
 U1 = ones(nx,nr).*rho; % Mass
@@ -141,8 +143,8 @@ G4_half = zeros(nx,nr);
 eta = 0.1; % eta_trans ではどうやら値が大きすぎる
 t = 0;
 x_laser0 = 0;
-umax_x = u_ionz0;
-umax_r = u_ionz0;
+umax = u_ionz0;
+vmax = u_ionz0;
 I = 0;
 
 for n1 = 1:nt
@@ -156,8 +158,7 @@ for n1 = 1:nt
         CFL=0.9; 
     end
     
-    dt_tmp = CFL*min(dx/umax_x , dr/umax_r); %s, 計算位置>波面位置となるようにdtを決定
-    dt = dt_tmp; %s
+    dt = CFL * min(dx/umax,  dr/vmax); %s, 計算位置>波面位置となるようにdtを決定
     
     t = t+dt; %s
     t_list(n1,1) = t * 1e6; %us
@@ -190,37 +191,37 @@ for n1 = 1:nt
     x_laser0 = x_laser0 + u_ionz * dt; %m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
     x_laser = x_laser0; %m 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
 
-    %進展方向の計算
-    for n2 = 2:nx-1
-        x = n2*dx; %m
-%         % その位置におけるビーム半径の計算。大した距離ではないのであまり計算する必要はない。
-%         W_G = sqrt((W_G0*1e-3)^2+M2_G^2*(lambda*1e-6)^2*x^2/pi^2/(W_G0*1e-3)^2); %m
-%         W_T = sqrt((W_T0*1e-3)^2+M2_T^2*(lambda*1e-6)^2*x^2/pi^2/(W_T0*1e-3)^2); %m
-%         
-%         % 波頭の値
-%         S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3; % GW/m^2 波頭のレーザー強度
-%         u_ionz = a*(S_laser0)^b*10^3; %m/s 波頭の速度
-%         x_laser0 = x_laser0+u_ionz*dt; %電離波面の波頭進展位置=Laserによって加熱される最初の位置
-%         x_laser = x_laser0; %横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
-        
-        %半径方向の計算
-        for n3 = 2:nr-1
-            r = n3*dr; %m
+    % 半径方向の計算
+    for n3 = 2:nr-1
+        r = n3*dr; %m
 
-            % ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
-            G_r = A_G*exp(-2*(r*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r*1e3/sqrt(2)/sigma_G2)^2);
-            T_r = A_T*exp(-2*(r*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r*1e3/sqrt(2)/sigma_T2)^2);
-            S_laser = R_peak * Power_laser/4/W_G/W_T*G_r*T_r*1e-3; %局所レーザー強度, GW/m2
-            x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
+        % ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
+        G_r = A_G*exp(-2*(r*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r*1e3/sqrt(2)/sigma_G2)^2);
+        T_r = A_T*exp(-2*(r*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r*1e3/sqrt(2)/sigma_T2)^2);
+        S_laser = R_peak * Power_laser/4/W_G/W_T*G_r*T_r*1e-3; %局所レーザー強度, GW/m2
+        x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
+        if x_laser > 0
+            xionz(n3,1) = x_laser % 電離波面の進展位置。加熱箇所を可視化する。
+        end
+
+        % 進展方向の計算
+        for n2 = 2:nx-1
+            x = n2*dx; %m
+            % % その位置におけるビーム半径の計算。大した距離ではないのであまり計算する必要はない。
+            % W_G = sqrt((W_G0*1e-3)^2+M2_G^2*(lambda*1e-6)^2*x^2/pi^2/(W_G0*1e-3)^2); %m
+            % W_T = sqrt((W_T0*1e-3)^2+M2_T^2*(lambda*1e-6)^2*x^2/pi^2/(W_T0*1e-3)^2); %m
             
+            % % 波頭の値
+            % S_laser0 = R_peak *Power_laser/4/W_G/W_T*1e-3; % GW/m^2 波頭のレーザー強度
+            % u_ionz = a*(S_laser0)^b*10^3; %m/s 波頭の速度
+            % x_laser0 = x_laser0+u_ionz*dt; %電離波面の波頭進展位置=Laserによって加熱される最初の位置
+            % x_laser = x_laser0; %横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
+        
             % Input Power Definition
-            % 加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい
-            % x_laserが0以下の時は加熱領域を0とする
+            % 加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい?
             if x > x_laser-l && x < x_laser
-                xr_ionz(n2,n3) = 1.5;
-                w = eta*S_laser/l *1e9; %W/m3
+                w = eta * S_laser / l * 1e9; %W/m3
             else
-                xr_ionz(n2,n3) = NaN;
                 w = 0;
             end
 
@@ -234,11 +235,12 @@ for n1 = 1:nt
         end
     end    
     
+
     % Boundary Conditions
     
     % Left(回転軸)
     for i = 2:nx-1
-        %Ttemp_x(i) = (gamma-1)*(U4_cal(i,2)-(1/2)*(U2_cal(i,2).^2+U3_cal(i,2).^2)./U1_cal(i,2))./U1_cal(i,2)/R; % Temperature to set the condition
+        %T_x(i) = (gamma-1)*(U4_cal(i,2)-(1/2)*(U2_cal(i,2).^2+U3_cal(i,2).^2)./U1_cal(i,2))./U1_cal(i,2)/R; % Temperature to set the condition
         U1_cal(i,1) = U1_cal(i,2); 
         U2_cal(i,1) = U2_cal(i,2); 
         U3_cal(i,1) = 0; %中心ではur=0のはず
@@ -247,8 +249,8 @@ for n1 = 1:nt
     
     % Right(流出)
     for i = 2:nx-1
-        Ttemp_x(i) = (gamma-1)*(U4_cal(i,nr-1)-(1/2)*(U2_cal(i,nr-1).^2+U3_cal(i,nr-1).^2)./U1_cal(i,nr-1))./U1_cal(i,nr-1)/R; % Temperature to set the condition
-        U1_cal(i,nr) = U1_cal(i,nr-1);%P_0/R./Ttemp_x(i);
+        T_x(i) = (gamma-1)*(U4_cal(i,nr-1)-(1/2)*(U2_cal(i,nr-1).^2+U3_cal(i,nr-1).^2)./U1_cal(i,nr-1))./U1_cal(i,nr-1)/R; % Temperature to set the condition
+        U1_cal(i,nr) = U1_cal(i,nr-1);%P_0/R./T_x(i);
         U2_cal(i,nr) = U2_cal(i,nr-1);%U2_cal(i,nr-1)./U1_cal(i,nr-1).*U1_cal(i,nr);
         U3_cal(i,nr) = U3_cal(i,nr-1);%U3_cal(i,nr-1)./U1_cal(i,nr-1).*U1_cal(i,nr);
         U4_cal(i,nr) = U4_cal(i,nr-1);%U4_cal(i,nr-1)./U1_cal(i,nr-1).*U1_cal(i,nr);
@@ -256,8 +258,8 @@ for n1 = 1:nt
     
     % Top(光軸方向)流出
     for i = 2:nr-1
-        Ttemp_r(i) = (gamma-1)*(U4_cal(nx-1,i)-(1/2)*(U2_cal(nx-1,i).^2+U3_cal(nx-1,i).^2)./U1_cal(nx-1,i))./U1_cal(nx-1,i)/R; % Temperature to set the condition
-        U1_cal(nx,i) = U1_cal(nx-1,i); %P_0/R./Ttemp_r(i);
+        T_r(i) = (gamma-1)*(U4_cal(nx-1,i)-(1/2)*(U2_cal(nx-1,i).^2+U3_cal(nx-1,i).^2)./U1_cal(nx-1,i))./U1_cal(nx-1,i)/R; % Temperature to set the condition
+        U1_cal(nx,i) = U1_cal(nx-1,i); %P_0/R./T_r(i);
         U2_cal(nx,i) = U2_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
         U3_cal(nx,i) = U3_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
         U4_cal(nx,i) = U4_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
@@ -280,24 +282,22 @@ for n1 = 1:nt
     U3_cal(nx,nr) = (U3_cal(nx-1,nr) + U3_cal(nx,nr-1))/2;
     U4_cal(nx,nr) = (U4_cal(nx-1,nr) + U4_cal(nx,nr-1))/2;
     
+
     % 各行列の更新
+    
     U1 = U1_cal;
     U2 = U2_cal;
     U3 = U3_cal;
     U4 = U4_cal;
-    
-    
+       
     rho = U1;
     u = U2./rho; %軸方向速度
     v = U3./rho; %半径方向速度
     P = (gamma-1)*(U4-(1/2)*rho.*(u.^2+v.^2));
     Pplateau(n1,:) = P(1,:);
-    %disp(Pplateau)
+    % disp(Pplateau)
     H = (U4+P)./rho;
-    
-    
-    
-    Ttemp = (gamma-1)*(U4_cal-(1/2)*(U2_cal.^2+U3_cal.^2)./U1_cal)./U1_cal./R; % Temperature
+    T = P./rho./R; % Temperature
     
     F1 = U2;
     F2 = rho.*u.^2+P;
@@ -309,8 +309,8 @@ for n1 = 1:nt
     G3 = rho.*v.^2+P;
     G4 = (U4+P).*v;
         
-    umax_x = u_ionz;
-    umax_r = u_ionz; %dtを決めるために仮おきしているだけなので値は厳密でなくて良い
+    umax = max(u, [], 'all');
+    vmax = max(v, [], 'all');
     
     for n2 = 1:nx-1
         
@@ -335,8 +335,8 @@ for n1 = 1:nt
             lambda_x(3) = u_av_x+a_av_x;
             lambda_x(4) = u_av_x-a_av_x;
             
-            if (umax_x<max(abs(lambda_x)))
-                umax_x = max(abs(lambda_x));
+            if (umax<max(abs(lambda_x)))
+                umax = max(abs(lambda_x));
             end
             
             % R行列の生成 from eigenvectors in w-space
@@ -391,8 +391,8 @@ for n1 = 1:nt
             lambda_r(3) = v_av_r+a_av_r;
             lambda_r(4) = v_av_r-a_av_r;
             
-            if (umax_r<max(abs(lambda_r)))
-                umax_r = max(abs(lambda_r));
+            if (vmax<max(abs(lambda_r)))
+                vmax = max(abs(lambda_r));
             end
             
             % R Matrix constructed from eigenvectors in w-space
@@ -437,18 +437,19 @@ for n1 = 1:nt
         Per = n1/nt*100;
         t_num = int64(nt/n1);
         t_txt(t_num,1)=t*1e6;
-        disp([num2str(Per),'%'])
-        disp(['time: ',num2str(t*1e6),' us'])
+        disp([num2str(Per),'%']) % 進捗
+        disp(['time: ',num2str(t*1e6),' us']) % 時刻
         f1 = figure;
         f2 = figure;
         f3 = figure;
         f4 = figure;
+
         % make p_t movie
         figure(f1);
         view(135,45)
-        sur = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,P / 10^5,'FaceAlpha',0.5);
+        sur = surface((r_list, x_list, P / 10^5,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,xr_ionz,'EdgeColor','red');
+        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         %set(sur2,'LineStyle','none')
         title('Pressure Colormap /atm');
         ylabel('Position z /mm');
@@ -460,9 +461,9 @@ for n1 = 1:nt
         % make T_t movie
         figure(f2);
         view(135,45)
-        sur = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,Ttemp,'FaceAlpha',0.5);
+        sur = surface(r_list, x_list, T,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,xr_ionz,'EdgeColor','red');
+        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
@@ -473,9 +474,9 @@ for n1 = 1:nt
         % make u_t movie
         figure(f3);
         view(135,45)
-        sur = surface((1:nr) *dr * 10^3 ,(1:nx) * dx * 10^3 ,u/1e3,'FaceAlpha',0.5);
+        sur = surface((1:nr) *dr * 10^3, x_list, u/1e3,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,xr_ionz,'EdgeColor','red');
+        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('u Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
@@ -486,9 +487,9 @@ for n1 = 1:nt
         % make v_t movie
         figure(f4);
         view(135,45)
-        sur = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,v/1e3,'FaceAlpha',0.5);
+        sur = surface(r_list, x_list, v/1e3,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface((1:nr) * dr * 10^3 ,(1:nx) * dx * 10^3 ,xr_ionz,'EdgeColor','red');
+        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('v Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
@@ -497,12 +498,12 @@ for n1 = 1:nt
         writeVideo(vv,frame);
         
         % make csv file
-        pressure_filename = append('G:\共有ドライブ\BEP\00_個人フォルダ\20_Takeda\二次元計算\Pressure\Pressure_',num2str(I),'.csv');
-        temperature_filename = append('G:\共有ドライブ\BEP\00_個人フォルダ\20_Takeda\二次元計算\Temperature\Temperature_',num2str(I),'.csv');
-        u_filename = append('G:\共有ドライブ\BEP\00_個人フォルダ\20_Takeda\二次元計算\U\U_',num2str(I),'.csv');
-        v_filename = append('G:\共有ドライブ\BEP\00_個人フォルダ\20_Takeda\二次元計算\V\V_',num2str(I),'.csv');
+        pressure_filename = fullfile(base_dir, 'Pressure', append('Pressure_',num2str(I),'.csv'));
+        temperature_filename = fullfile(base_dir, 'Temperature', append('Temperature_',num2str(I),'.csv'));
+        u_filename = fullfile(base_dir, 'U', append('U_',num2str(I),'.csv'));
+        v_filename = fullfile(base_dir, 'V', append('V_',num2str(I),'.csv'));
         writematrix(P/1e5,pressure_filename)
-        writematrix(Ttemp,temperature_filename)
+        writematrix(T,temperature_filename)
         writematrix(u/1e3,u_filename)
         writematrix(v/1e3,v_filename)
         %M(I) = getframe(); %#ok<SAGROW>
@@ -515,61 +516,11 @@ close(vp);
 close(vt);
 close(vu);
 close(vv);
-writematrix(t_txt,'G:\共有ドライブ\BEP\00_個人フォルダ\20_Takeda\二次元計算\time_data.csv')
-% figure
-% 
-% figure(2)
-% 
-% contourf(1:nx,1:nr,P)
-% title('Pressure Colormap')
-% xlabel('Position x')
-% ylabel('Position r')
-% 
-% figure(1)
-% 
-% sur = surface(1:nr,1:nx,P);
-% set(sur,'LineStyle','none')
-% title('Pressure Colormap')
-% ylabel('Position x')
-% xlabel('Position r')
 
-% figure(2)
-% 
-% surface(1:nr,1:nx,u)
-% title('X Speed Colormap')
-% ylabel('Position x')
-% xlabel('Position r')
-% 
-% figure(3)
-% 
-% surface(1:nr,1:nx,v)
-% title('Y Speed Colormap')
-% ylabel('Position x')
-% xlabel('Position r')
-% 
-% figure(4)
-% 
-% surface(1:nr,1:nx,rho)
-% title('Density Colormap')
-% ylabel('Position x')
-% xlabel('Position r')
-
-%movie(M,15)
-%v = VideoWriter('movie.avi');
-%v.FrameRate = 1;
-%open(v);
-%writeVideo(v,M);
-%close(v);
-% plot(t_list,uionz_list);
-% 
-% figure(100);
-% view(135,45)
-% sur = surface((1:nr) * dr * 10^3,t_list * 10^6,Pplateau /10^5,'FaceAlpha',0.5);
-% set(sur,'LineStyle','none');
-% title('plateau pressure Colormap /atm');
-% ylabel('time t /μs');
-% xlabel('Position r /mm');
-% ylim([0 5]);
+writematrix(t_txt,fullfile(base_dir,'time_scale.csv'))
+writematrix(x_list,fullfile(base_dir,'x_scale.csv'))
+writematrix(r_list,fullfile(base_dir,'r_scale.csv'))
+writematrix(Pplateau/1e5,fullfile(base_dir,'plateau_pressure_data.csv'))
 
 toc
 

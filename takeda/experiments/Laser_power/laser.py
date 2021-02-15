@@ -67,7 +67,7 @@ p_list = []
 s_list = []
 x_list = []
 
-fig, (axL, axR) = plt.subplots(ncols=2, figsize=(10,4))
+fig, (axL, axR) = plt.subplots(ncols=2, figsize=(10, 4))
 for n1 in range(nt):
     # 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
     dt = 1e-8  # s
@@ -129,18 +129,15 @@ for n1 in range(nt):
 
             #  Input Power Definition
             #  加熱領域をx_laserよりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい
-            #  x_laserが0以下の時は加熱領域が0とする
-            if x_laser > 0:
-                if x > x_laser - l and x < x_laser:
-                    w = eta * S_laser / l * 1e9  # W/m3
-                else:
-                    w = 0
+            if x > x_laser - l and x < x_laser:
+                w = eta * S_laser / l * 1e9  # W/m3
             else:
                 w = 0
+
             if round(t * 1e6, 2) in [0.67, 0.87, 1.27, 1.56, 1.83]:
                 r_list.append(round(r * 1e3, 3))
                 x_lateral_list.append(round((x_laser - x_laser0) * 1e3, 2))
-                s_lateral_list.append(round(S_laser,2))
+                s_lateral_list.append(round(S_laser, 2))
         if round(t * 1e6, 2) in [0.67, 0.87, 1.27, 1.56, 1.83]:
             r_minus = list(map(lambda x: x * -1, r_list))
             r_list = list(reversed(r_minus)) + r_list
@@ -162,11 +159,11 @@ axR.legend(loc='upper right')  # 凡例
 plt.savefig('波面形状とレーザープロファイル履歴.png')
 fig.show()
 
-#figure()でグラフを表示する領域をつくり，figというオブジェクトにする．
-fig = plt.figure(figsize=(10,8))
+# figure()でグラフを表示する領域をつくり，figというオブジェクトにする．
+fig = plt.figure(figsize=(10, 8))
 
-#add_subplot()でグラフを描画する領域を追加する．引数は行，列，場所
-spec = gridspec.GridSpec(ncols=2, nrows=1, width_ratios=[1,4])
+# add_subplot()でグラフを描画する領域を追加する．引数は行，列，場所
+spec = gridspec.GridSpec(ncols=2, nrows=1, width_ratios=[1, 4])
 ax1 = fig.add_subplot(4, 5, 1)
 ax2 = fig.add_subplot(4, 5, 6)
 ax3 = fig.add_subplot(4, 5, 11)
