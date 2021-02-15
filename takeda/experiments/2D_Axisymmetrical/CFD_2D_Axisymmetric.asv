@@ -27,9 +27,10 @@ dr = 0.005e-3; % m Segment length % dr の分解能が大事っぽい
 dt = 0.1; %s すぐに淘汰される値なので意味はない。初期値
 nx = 250; % Number of position segments, xは進展方向
 nr = 500; %2.5e-3/dr; %全長2.5 mmになるように設定 
-nt = 400; % Number of time segments
+nt = 800; % Number of time segments
 ng = 40;%40; % Graphの分割数を決める値
 CFL = 0.7; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
+eta = 0.05; %加熱効率
 select_gas = 'air';
 
 % Physical Values
@@ -140,7 +141,7 @@ G4_half = zeros(nx,nr);
 
 % Calculation
 %eta = eta_trans
-eta = 0.05; % eta_trans ではどうやら値が大きすぎる
+eta = 0.1; % eta_trans ではどうやら値が大きすぎる
 t = 0;
 x_laser0 = 0;
 umax = u_ionz0;
@@ -463,7 +464,7 @@ for n1 = 1:nt
         title('Pressure Colormap /atm');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([1 150]);
+        % zlim([1 60]);
         frame = getframe(gcf);
         writeVideo(vp,frame);
         
@@ -475,7 +476,7 @@ for n1 = 1:nt
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        %zlim([1 1*1e4]);
+        zlim([1 1*1e6]);
         frame = getframe(gcf);
         writeVideo(vt,frame);
         
@@ -487,7 +488,7 @@ for n1 = 1:nt
         title('u Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([0 4]);
+        zlim([0 5]);
         frame = getframe(gcf);
         writeVideo(vu,frame);
         
@@ -499,7 +500,7 @@ for n1 = 1:nt
         title('v Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([0 3]);
+        zlim([ 3]);
         frame = getframe(gcf);
         writeVideo(vv,frame);
         
