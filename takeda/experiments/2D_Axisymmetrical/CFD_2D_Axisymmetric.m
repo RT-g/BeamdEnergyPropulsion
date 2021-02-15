@@ -4,11 +4,11 @@
 clear
 close all
 
-base_dir = fullfile(pwd, datetime('Format', 'yyMMddHHmmss'));
-mkdir base_dir 'Pressure';
-mkdir base_dir 'Temperature';
-mkdir base_dir 'U';
-mkdir base_dir 'V';
+base_dir = fullfile(pwd, string(datetime(now, 'ConvertFrom', 'datenum', 'Format', 'yyMMddHH')));
+mkdir(base_dir, 'Pressure');
+mkdir(base_dir, 'Temperature');
+mkdir(base_dir, 'U');
+mkdir(base_dir, 'V');
 
 tic
 vp=VideoWriter('movie_Pressure.avi');
@@ -61,12 +61,12 @@ slope = gas_table(select_gas, 'a').Variables;
 intercept = gas_table(select_gas, 'b').Variables;
 slope_low = gas_table(select_gas, 'a_low').Variables;
 intercept_low = gas_table(select_gas, 'b_low').Variables;
-a = gas_table(select_gas, 'speed of sound').Variables;
+a = gas_table(select_gas, 'speed_of_sound').Variables;
 R_0 = 8314.0;
 R = R_0/m;
 
 % Common Values for gases
-u_ionz0 = a*524.4^b*1.2*1e3; %m/s
+u_ionz0 = slope*524.4^intercept*1.2*1e3; %m/s
 P_0 = 1.013e5*1;
 T_0 = 293;
 rho_0 = P_0/R/T_0;
@@ -86,8 +86,8 @@ T = zeros(nx,nr);
 rho = zeros(nx,nr);
 H = zeros(nx,nr);
 t_list = zeros(nt,1);
-x_list = (1:nx) * dx * 1e3 % mm
-r_list = (1:nr) * dr * 1e3 % mm
+x_list = (1:nx) * dx * 1e3; % mm
+r_list = (1:nr) * dr * 1e3; % mm
 uionz_list = zeros(nt,1);
 xionz = zeros(nr,1);
 t_txt = zeros(nt/ng,1);
@@ -183,11 +183,12 @@ for n1 = 1:nt
     u_ionz_line1 = slope * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept * a; %m/s 波頭の速度
     u_ionz_line3 = slope_low * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept_low * a;
     if (u_ionz_line1 > u_ionz_line3)
-        u_ionz = u_ionz_line1 % Line1, 松井さん博論
-        b = intercept
+        u_ionz = u_ionz_line1; % Line1, 松井さん博論
+        b = intercept;
     else
-        u_ionz = u_ionz_line3 % Line3, 松井さん博論
-        b = intercept_low
+        u_ionz = u_ionz_line3; % Line3, 松井さん博論
+        b = intercept_low;
+    end
     x_laser0 = x_laser0 + u_ionz * dt; %m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
     x_laser = x_laser0; %m 横方向の加熱位置を決めるための処理。初期値はその時刻における波頭位置とする
 
@@ -201,7 +202,7 @@ for n1 = 1:nt
         S_laser = R_peak * Power_laser/4/W_G/W_T*G_r*T_r*1e-3; %局所レーザー強度, GW/m2
         x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
         if x_laser > 0
-            xionz(n3,1) = x_laser % 電離波面の進展位置。加熱箇所を可視化する。
+            xionz(n3,1) = x_laser; % 電離波面の進展位置。加熱箇所を可視化する。
         end
 
         % 進展方向の計算
@@ -227,7 +228,7 @@ for n1 = 1:nt
 
             % Euler Calculation ゴドノフ法
             rn = abs(r);
-            U1_cal(n2,n3) = U1(n2,n3) - dt/dx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dt/dr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
+            U1_cal(n2,n3) = U1(n2,n3)  - dt/dx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dt/dr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
             U2_cal(n2,n3) = U2(n2,n3) - dt/dx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dt/dr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;
             U3_cal(n2,n3) = U3(n2,n3) - dt/dx*(F3_half(n2,n3)-F3_half(n2-1,n3)) - dt/dr*(G3_half(n2,n3)-G3_half(n2,n3-1))+dt/rn*(P(n2,n3)-G3(n2,n3));
             U4_cal(n2,n3) = U4(n2,n3) - dt/dx*(F4_half(n2,n3)-F4_half(n2-1,n3)) - dt/dr*(G4_half(n2,n3)-G4_half(n2,n3-1))-dt/rn*G4(n2,n3) + w*dt;
@@ -439,22 +440,30 @@ for n1 = 1:nt
         t_txt(t_num,1)=t*1e6;
         disp([num2str(Per),'%']) % 進捗
         disp(['time: ',num2str(t*1e6),' us']) % 時刻
+        f0 = figure;
         f1 = figure;
         f2 = figure;
         f3 = figure;
         f4 = figure;
 
+        % make Support Line Matrix
+        figure(f0);
+        plot(r_list, xionz*1e3);
+        title('ionized wave propagation');
+        ylabel('Position z /mm');
+        xlabel('Position r /mm');
+        xlim([0 2.5]);
+        ylim([0 2.5]);
+
         % make p_t movie
         figure(f1);
         view(135,45)
-        sur = surface((r_list, x_list, P / 10^5,'FaceAlpha',0.5);
+        sur = surface(r_list, x_list, P / 10^5,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
-        %set(sur2,'LineStyle','none')
         title('Pressure Colormap /atm');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([1 60]);
+        % zlim([1 60]);
         frame = getframe(gcf);
         writeVideo(vp,frame);
         
@@ -463,7 +472,6 @@ for n1 = 1:nt
         view(135,45)
         sur = surface(r_list, x_list, T,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
@@ -476,7 +484,6 @@ for n1 = 1:nt
         view(135,45)
         sur = surface((1:nr) *dr * 10^3, x_list, u/1e3,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('u Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
@@ -489,7 +496,6 @@ for n1 = 1:nt
         view(135,45)
         sur = surface(r_list, x_list, v/1e3,'FaceAlpha',0.5);
         set(sur,'LineStyle','none')
-        sur2 = surface(r_list, xionz, 1.5,'EdgeColor','red');
         title('v Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
