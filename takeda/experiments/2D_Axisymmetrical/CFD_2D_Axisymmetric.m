@@ -25,9 +25,9 @@ open(vv);
 dx = 0.01e-3; % m Segment length 
 dr = 0.005e-3; % m Segment length % dr の分解能が大事っぽい
 dt = 0.1; %s すぐに淘汰される値なので意味はない。初期値
-nx = 250; % Number of position segments, xは進展方向
+nx = 1000; % Number of position segments, xは進展方向
 nr = 500; %2.5e-3/dr; %全長2.5 mmになるように設定 
-nt = 400; % Number of time segments
+nt = 2000; % Number of time segments
 ng = 40;%40; % Graphの分割数を決める値
 CFL = 0.7; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
 select_gas = 'air';
@@ -452,7 +452,7 @@ for n1 = 1:nt
         title('ionized wave propagation');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        xlim([0 2.5]);
+        xlim([0 10]);
         ylim([0 2.5]);
 
         % make p_t movie
@@ -475,7 +475,7 @@ for n1 = 1:nt
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([1 1*1e4]);
+        zlim([1 5*1e4]);
         frame = getframe(gcf);
         writeVideo(vt,frame);
         
