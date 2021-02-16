@@ -44,6 +44,7 @@ b_low = gas_dict['b_low']
 ss = gas_dict['speed_of_sound']
 rho = gas_dict['rho']
 R = R_0 / m
+t_terminate = 2.3
 
 u_ionz0 = a * 524.4 ** b * 1.2 * 1e3  # m/s
 P_0 = 1.013e5
@@ -93,6 +94,7 @@ for n1 in range(nt):
     if u_ionz_line1 > u_ionz_line3:
         u_ionz = u_ionz_line1
         beta = b
+        t_500 = t
     else:
         u_ionz = u_ionz_line3
         beta = b_low
@@ -189,11 +191,17 @@ ax1.vlines([2.3], 0, 1000, 'yellow', linestyles='dashed')
 ax2.vlines([2.3], 0, 1000, 'yellow', linestyles='dashed')
 ax3.vlines([2.3], 0, 1000, 'yellow', linestyles='dashed')
 ax4.vlines([2.3], 0, 1000, 'yellow', linestyles='dashed')
+ax1.vlines([t_500*1e6], 0, 1000, 'red', linestyles='dashed')
+ax2.vlines([t_500*1e6], 0, 1000, 'red', linestyles='dashed')
+ax3.vlines([t_500*1e6], 0, 1000, 'red', linestyles='dashed')
+ax4.vlines([t_500*1e6], 0, 1000, 'red', linestyles='dashed')
 ax5.set_xscale('log')
 ax5.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
 ax5.set_yscale('log')
 ax5.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
 ax5.vlines([500], 0.1, 10, 'red', linestyles='dashed')
+intencity_terminate = 8.15 * exp(-0.866 * 2.3) *  R_peak / 4 / W_G / W_T * 1e-3
+ax5.vlines([intencity_terminate], 0.1, 10, 'yellow', linestyles='dashed')
 
 ax1.set_xlim(0, 5)
 ax1.set_ylim(0, 25)
