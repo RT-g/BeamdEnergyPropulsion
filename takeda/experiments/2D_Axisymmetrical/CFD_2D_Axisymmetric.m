@@ -25,7 +25,7 @@ open(vv);
 dx = 0.01e-3; % m Segment length 
 dr = 0.005e-3; % m Segment length % dr の分解能が大事っぽい
 dt = 0.1; %s すぐに淘汰される値なので意味はない。初期値
-nx = 1000; % Number of position segments, xは進展方向
+nx = 250; % Number of position segments, xは進展方向
 nr = 500; %2.5e-3/dr; %全長2.5 mmになるように設定 
 nt = 2000; % Number of time segments
 ng = 40;%40; % Graphの分割数を決める値
@@ -322,10 +322,10 @@ for n1 = 1:nt
             % Direction x
             
             % Expressing rho, u, v and H in the basis of w (Roe's paper)
-            rho_av_x = sqrt(rho(n2,n3)*rho(n2+1,n3));
-            u_av_x = (sqrt(rho(n2,n3))*u(n2,n3)+sqrt(rho(n2+1,n3))*u(n2+1,n3))/(sqrt(rho(n2,n3))+sqrt(rho(n2+1,n3))); 
-            v_av_x = (sqrt(rho(n2,n3))*v(n2,n3)+sqrt(rho(n2+1,n3))*v(n2+1,n3))/(sqrt(rho(n2,n3))+sqrt(rho(n2+1,n3))); 
-            H_av_x = (sqrt(rho(n2,n3))*H(n2,n3)+sqrt(rho(n2+1,n3))*H(n2+1,n3))/(sqrt(rho(n2,n3))+sqrt(rho(n2+1,n3))); 
+            D_x = sqrt(rho(n2+1,n3)/rho(n2,n3));
+            u_av_x = (u(n2,n3)+D_x*u(n2+1,n3))/(1+D_x); 
+            v_av_x = (v(n2,n3)+D_x*v(n2+1,n3))/(1+D_x); 
+            H_av_x = (H(n2,n3)+D_x*H(n2+1,n3))/(1+D_x); 
             
             a_av_x = sqrt((gamma-1)*(H_av_x-1/2*(u_av_x.^2 + v_av_x.^2))); %Square root of the derivative of P br rho, used in the eigenvalues of the Jacobian matrix
             
@@ -356,19 +356,17 @@ for n1 = 1:nt
             
             % Solving the linear problem
             
-            A_x = zeros(4,4);
-            for i =1:4
-                A_x(i,i) = abs(lambda_x(i));
-            end
+            A_x =  diag(abs(lambda_x));
+            RAR_inv_x = R_x*A_x/R_x;
             
-            RAR_inv_x = R_x*A_x/R_x;%*R_x_inverse;
-            
-            S_x = zeros(4,1);
-            S_x(1) = RAR_inv_x(1,1)*(U1(n2+1,n3)-U1(n2,n3)) + RAR_inv_x(1,2)*(U2(n2+1,n3)-U2(n2,n3)) + RAR_inv_x(1,3)*(U3(n2+1,n3)-U3(n2,n3)) + RAR_inv_x(1,4)*(U4(n2+1,n3)-U4(n2,n3));
-            S_x(2) = RAR_inv_x(2,1)*(U1(n2+1,n3)-U1(n2,n3)) + RAR_inv_x(2,2)*(U2(n2+1,n3)-U2(n2,n3)) + RAR_inv_x(2,3)*(U3(n2+1,n3)-U3(n2,n3)) + RAR_inv_x(2,4)*(U4(n2+1,n3)-U4(n2,n3));
-            S_x(3) = RAR_inv_x(3,1)*(U1(n2+1,n3)-U1(n2,n3)) + RAR_inv_x(3,2)*(U2(n2+1,n3)-U2(n2,n3)) + RAR_inv_x(3,3)*(U3(n2+1,n3)-U3(n2,n3)) + RAR_inv_x(3,4)*(U4(n2+1,n3)-U4(n2,n3));
-            S_x(4) = RAR_inv_x(4,1)*(U1(n2+1,n3)-U1(n2,n3)) + RAR_inv_x(4,2)*(U2(n2+1,n3)-U2(n2,n3)) + RAR_inv_x(4,3)*(U3(n2+1,n3)-U3(n2,n3)) + RAR_inv_x(4,4)*(U4(n2+1,n3)-U4(n2,n3));
-            
+            dU_x = zeros(4,1);
+            dU_x(1) = U1(n2+1,n3)-U1(n2,n3);
+            dU_x(2) = U2(n2+1,n3)-U2(n2,n3);
+            dU_x(3) = U3(n2+1,n3)-U3(n2,n3);
+            dU_x(4) = U4(n2+1,n3)-U4(n2,n3);
+            S_x = RAR_inv_x*dU_x; % ここをTVDスキームに変えるだけでTVDにできる
+
+            % 一次風上差分
             F1_half(n2,n3) = 1/2*(F1(n2+1,n3)+F1(n2,n3)-S_x(1));
             F2_half(n2,n3) = 1/2*(F2(n2+1,n3)+F2(n2,n3)-S_x(2));
             F3_half(n2,n3) = 1/2*(F3(n2+1,n3)+F3(n2,n3)-S_x(3));
@@ -378,10 +376,10 @@ for n1 = 1:nt
             % Direction r
             
             % Expressing rho, u, v and H in the basis of w (Roe's paper)
-            rho_av_r = sqrt(rho(n2,n3)*rho(n2,n3+1));
-            u_av_r = (sqrt(rho(n2,n3))*u(n2,n3)+sqrt(rho(n2,n3+1))*u(n2,n3+1))/(sqrt(rho(n2,n3))+sqrt(rho(n2,n3+1)));
-            v_av_r = (sqrt(rho(n2,n3))*v(n2,n3)+sqrt(rho(n2,n3+1))*v(n2,n3+1))/(sqrt(rho(n2,n3))+sqrt(rho(n2,n3+1)));
-            H_av_r = (sqrt(rho(n2,n3))*H(n2,n3)+sqrt(rho(n2,n3+1))*H(n2,n3+1))/(sqrt(rho(n2,n3))+sqrt(rho(n2,n3+1)));
+            D_r = sqrt(rho(n2,n3+1)/rho(n2,n3));
+            u_av_r = (u(n2,n3)+D_r*u(n2,n3+1))/(1+D_r);
+            v_av_r = (v(n2,n3)+D_r*v(n2,n3+1))/(1+D_r);
+            H_av_r = (H(n2,n3)+D_r*H(n2,n3+1))/(1+D_r);
             
             a_av_r = sqrt((gamma-1)*(H_av_r-1/2*(u_av_r.^2 + v_av_r.^2))); %Square root of the derivative of P by rho, used in the eigenvalues of the Jacobian matrix
             
@@ -413,19 +411,17 @@ for n1 = 1:nt
             
             % Solving the linear problem
             
-            A_r = zeros(4,4);
-            for i =1:4
-                A_r(i,i) = abs(lambda_r(i));
-            end
+            A_r =  diag(abs(lambda_r));
+            RAR_inv_r = R_r*A_r/R_r;
             
-            RAR_inv_r = R_r*A_r/R_r;%*R_r_inverse;
+            dU_r = zeros(4,1);
+            dU_r(1) = U1(n2,n3+1)-U1(n2,n3);
+            dU_r(2) = U2(n2,n3+1)-U2(n2,n3);
+            dU_r(3) = U3(n2,n3+1)-U3(n2,n3);
+            dU_r(4) = U4(n2,n3+1)-U4(n2,n3);
+            S_r = RAR_inv_r*dU_r; % ここをTVDスキームに変えるだけでTVDにできる
             
-            S_r = zeros(4,1);
-            S_r(1) = RAR_inv_r(1,1)*(U1(n2,n3+1)-U1(n2,n3)) + RAR_inv_r(1,2)*(U2(n2,n3+1)-U2(n2,n3)) + RAR_inv_r(1,3)*(U3(n2,n3+1)-U3(n2,n3)) + RAR_inv_r(1,4)*(U4(n2,n3+1)-U4(n2,n3));
-            S_r(2) = RAR_inv_r(2,1)*(U1(n2,n3+1)-U1(n2,n3)) + RAR_inv_r(2,2)*(U2(n2,n3+1)-U2(n2,n3)) + RAR_inv_r(2,3)*(U3(n2,n3+1)-U3(n2,n3)) + RAR_inv_r(2,4)*(U4(n2,n3+1)-U4(n2,n3));
-            S_r(3) = RAR_inv_r(3,1)*(U1(n2,n3+1)-U1(n2,n3)) + RAR_inv_r(3,2)*(U2(n2,n3+1)-U2(n2,n3)) + RAR_inv_r(3,3)*(U3(n2,n3+1)-U3(n2,n3)) + RAR_inv_r(3,4)*(U4(n2,n3+1)-U4(n2,n3));
-            S_r(4) = RAR_inv_r(4,1)*(U1(n2,n3+1)-U1(n2,n3)) + RAR_inv_r(4,2)*(U2(n2,n3+1)-U2(n2,n3)) + RAR_inv_r(4,3)*(U3(n2,n3+1)-U3(n2,n3)) + RAR_inv_r(4,4)*(U4(n2,n3+1)-U4(n2,n3));
-            
+            % 一次風上差分
             G1_half(n2,n3) = 1/2*(G1(n2,n3+1)+G1(n2,n3)-S_r(1));
             G2_half(n2,n3) = 1/2*(G2(n2,n3+1)+G2(n2,n3)-S_r(2));
             G3_half(n2,n3) = 1/2*(G3(n2,n3+1)+G3(n2,n3)-S_r(3));
@@ -452,8 +448,8 @@ for n1 = 1:nt
         title('ionized wave propagation');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        xlim([0 10]);
-        ylim([0 2.5]);
+        xlim([0 2.5]);
+        ylim([0 10]);
 
         % make p_t movie
         figure(f1);
@@ -463,7 +459,7 @@ for n1 = 1:nt
         title('Pressure Colormap /atm');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([1 150]);
+        zlim([1 50]);
         frame = getframe(gcf);
         writeVideo(vp,frame);
         

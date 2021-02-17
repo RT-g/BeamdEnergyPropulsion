@@ -3,6 +3,7 @@
 
 clear
 close all
+clearvars
 
 base_dir = fullfile(pwd, string(datetime(now, 'ConvertFrom', 'datenum', 'Format', 'yyMMddHH')));
 mkdir(base_dir, 'Pressure');
@@ -11,10 +12,10 @@ mkdir(base_dir, 'U');
 mkdir(base_dir, 'V');
 
 tic
-vp=VideoWriter('movie_Pressure.avi');
-vt=VideoWriter('movie_Temperature.avi');
-vu=VideoWriter('movie_Velocity_u.avi');
-vv=VideoWriter('movie_Velocity_v.avi');
+vp=VideoWriter(fullfile(base_dir,'movie_Pressure.avi'));
+vt=VideoWriter(fullfile(base_dir,'movie_Temperature.avi'));
+vu=VideoWriter(fullfile(base_dir,'movie_Velocity_u.avi'));
+vv=VideoWriter(fullfile(base_dir,'movie_Velocity_v.avi'));
 open(vp);
 open(vt);
 open(vu);
@@ -24,13 +25,12 @@ open(vv);
 dx = 0.01e-3; % m Segment length 
 dr = 0.005e-3; % m Segment length % dr の分解能が大事っぽい
 dt = 0.1; %s すぐに淘汰される値なので意味はない。初期値
-nx = 250; % Number of position segments, xは進展方向
-nr = 500; %2.5e-3/dr; %全長2.5 mmになるように設定 
+nx = 1000; % Number of position segments, xは進展方向
+nr = 1000; %2.5e-3/dr; %全長2.5 mmになるように設定 
 nt = 5000; % Number of time segments
-ng = 4;%40; % Graphの分割数を決める値
-CFL = 0.7; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
-eta = 0.1; %加熱効率
-ecp = 0.125; %エントロピー補正量？大体10%
+ng = 40;%40; % Graphの分割数を決める値
+CFL = 0.5; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
+delta = 0.1; %エントロピー補正量？大体10%
 select_gas = 'air';
 
 % Physical Values
@@ -141,7 +141,7 @@ G4_half = zeros(nx,nr);
 
 % Calculation
 %eta = eta_trans
-eta = 0.1; % eta_trans ではどうやら値が大きすぎる
+eta = 0.05; % eta_trans ではどうやら値が大きすぎる
 t = 0;
 x_laser0 = 0;
 umax = u_ionz0;
@@ -149,31 +149,24 @@ vmax = u_ionz0;
 I = 0;
 
 for n1 = 1:nt
-    % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
-    % レーザー強度の関数の形状に応じてクーラン数を調整
-    if (t*1e6<0.085)
-        CFL=0.7;
-    elseif (t*1e6<0.125)
-        CFL=0.8;
-    else
-        CFL=0.9; 
-    end
-    
+    % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる    
     dt = CFL * min(dx/umax,  dr/vmax); %s, 計算位置>波面位置となるようにdtを決定
-    
+    dtdx = dt/dx;
+    dtdr = dt/dr;
+
     t = t+dt; %s
     t_list(n1,1) = t * 1e6; %us
 
     % レーザー強度の時間減衰(10J) 単位はMW
-    % Power_laser = 8.15*exp(-0.866*t*1e6); 
+    Power_laser = 8.15*exp(-0.866*t*1e6); 
     % 正確に再現すると温度などが高く出すぎる
-    if (t*1e6<0.085)
-        Power_laser = 287.9222823*t*1e6+0.0005175756469;
-    elseif (t*1e6<0.125)
-        Power_laser =-476.3277981*t*1e6+66.1043297;
-    else
-        Power_laser = 8.15*exp(-0.866*t*1e6); 
-    end  
+    % if (t*1e6<0.085)
+    %     Power_laser = 287.9222823*t*1e6+0.0005175756469;
+    % elseif (t*1e6<0.125)
+    %     Power_laser =-476.3277981*t*1e6+66.1043297;
+    % else
+    %     Power_laser = 8.15*exp(-0.866*t*1e6); 
+    % end  
     
     % 進展方向のレーザー強度の変化を考慮しない場合のビーム半径
     W_G = W_G0*1e-3; %m
@@ -204,6 +197,7 @@ for n1 = 1:nt
         x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
         if x_laser > 0
             xionz(n3,1) = x_laser; % 電離波面の進展位置。加熱箇所を可視化する。
+            break_r = r;
         end
 
         % 進展方向の計算
@@ -227,13 +221,13 @@ for n1 = 1:nt
                 w = 0;
             end
 
-            % Euler Calculation ゴドノフ法
+            % Euler Calculation 有限体積法
             rn = abs(r);
-            U1_cal(n2,n3) = U1(n2,n3) - dt/dx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dt/dr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
-            U2_cal(n2,n3) = U2(n2,n3) - dt/dx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dt/dr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;
-            U3_cal(n2,n3) = U3(n2,n3) - dt/dx*(F3_half(n2,n3)-F3_half(n2-1,n3)) - dt/dr*(G3_half(n2,n3)-G3_half(n2,n3-1))+dt/rn*(P(n2,n3)-G3(n2,n3));
-            U4_cal(n2,n3) = U4(n2,n3) - dt/dx*(F4_half(n2,n3)-F4_half(n2-1,n3)) - dt/dr*(G4_half(n2,n3)-G4_half(n2,n3-1))-dt/rn*G4(n2,n3) + w*dt;
-
+            U1_cal(n2,n3) = U1(n2,n3) - dtdx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dtdr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
+            U2_cal(n2,n3) = U2(n2,n3) - dtdx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dtdr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;
+            U3_cal(n2,n3) = U3(n2,n3) - dtdx*(F3_half(n2,n3)-F3_half(n2-1,n3)) - dtdr*(G3_half(n2,n3)-G3_half(n2,n3-1))+dt/rn*(P(n2,n3)-G3(n2,n3));
+            U4_cal(n2,n3) = U4(n2,n3) - dtdx*(F4_half(n2,n3)-F4_half(n2-1,n3)) - dtdr*(G4_half(n2,n3)-G4_half(n2,n3-1))-dt/rn*G4(n2,n3) + w*dt;
+            
         end
     end    
     
@@ -251,7 +245,7 @@ for n1 = 1:nt
     
     % Right(流出)
     for i = 2:nx-1
-        T_x(i) = (gamma-1)*(U4_cal(i,nr-1)-(1/2)*(U2_cal(i,nr-1).^2+U3_cal(i,nr-1).^2)./U1_cal(i,nr-1))./U1_cal(i,nr-1)/R; % Temperature to set the condition
+        % T_x(i) = (gamma-1)*(U4_cal(i,nr-1)-(1/2)*(U2_cal(i,nr-1).^2+U3_cal(i,nr-1).^2)./U1_cal(i,nr-1))./U1_cal(i,nr-1)/R; % Temperature to set the condition
         U1_cal(i,nr) = U1_cal(i,nr-1);%P_0/R./T_x(i);
         U2_cal(i,nr) = U2_cal(i,nr-1);%U2_cal(i,nr-1)./U1_cal(i,nr-1).*U1_cal(i,nr);
         U3_cal(i,nr) = U3_cal(i,nr-1);%U3_cal(i,nr-1)./U1_cal(i,nr-1).*U1_cal(i,nr);
@@ -260,7 +254,7 @@ for n1 = 1:nt
     
     % Top(光軸方向)流出
     for i = 2:nr-1
-        T_r(i) = (gamma-1)*(U4_cal(nx-1,i)-(1/2)*(U2_cal(nx-1,i).^2+U3_cal(nx-1,i).^2)./U1_cal(nx-1,i))./U1_cal(nx-1,i)/R; % Temperature to set the condition
+        % T_r(i) = (gamma-1)*(U4_cal(nx-1,i)-(1/2)*(U2_cal(nx-1,i).^2+U3_cal(nx-1,i).^2)./U1_cal(nx-1,i))./U1_cal(nx-1,i)/R; % Temperature to set the condition
         U1_cal(nx,i) = U1_cal(nx-1,i); %P_0/R./T_r(i);
         U2_cal(nx,i) = U2_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
         U3_cal(nx,i) = U3_cal(nx-1,i);%./U1_cal(nx-1,i).*U1_cal(nx,i);
@@ -286,12 +280,11 @@ for n1 = 1:nt
     
 
     % 各行列の更新
-    
     U1 = U1_cal;
     U2 = U2_cal;
     U3 = U3_cal;
     U4 = U4_cal;
-       
+    
     rho = U1;
     u = U2./rho; %軸方向速度
     v = U3./rho; %半径方向速度
@@ -300,7 +293,7 @@ for n1 = 1:nt
     % disp(Pplateau)
     H = (U4+P)./rho;
     T = P./rho./R; % Temperature
-    
+
     F1 = U2;
     F2 = rho.*u.^2+P;
     F3 = rho.*u.*v;
@@ -315,88 +308,127 @@ for n1 = 1:nt
     vmax = max(v, [], 'all');
     
 
-    % セル間の平均値の計算 ここが非常に怪しい
-    % for n2 = 2:nx-2
-    %     for n3 = 2:nr-2
+    % セル間の平均値の計算 ゴドノフ法
     for n2 = 2:nx-2
-        for n3 = 2:nr-2        
+        for n3 = 2:nr-2
+            if n3*dr > break_r + 20*dr ||  n2*dx > x_laser0 + 20 * dx
+                F1_half(n2,n3) = 1/2*(F1(n2+1,n3)+F1(n2,n3));
+                F2_half(n2,n3) = 1/2*(F2(n2+1,n3)+F2(n2,n3));
+                F3_half(n2,n3) = 1/2*(F3(n2+1,n3)+F3(n2,n3));
+                F4_half(n2,n3) = 1/2*(F4(n2+1,n3)+F4(n2,n3));
+                G1_half(n2,n3) = 1/2*(G1(n2,n3+1)+G1(n2,n3));
+                G2_half(n2,n3) = 1/2*(G2(n2,n3+1)+G2(n2,n3));
+                G3_half(n2,n3) = 1/2*(G3(n2,n3+1)+G3(n2,n3));
+                G4_half(n2,n3) = 1/2*(G4(n2,n3+1)+G4(n2,n3));
+                continue
+            end
             % Direction x
-            % Solving the linear problem
-            % 2次精度風上TVD
-            
-            rsx = riemansolver(gamma,rho(n2:n2+1,n3),u(n2:n2+1,n3), v(n2:n2+1,n3),H(n2:n2+1,n3),P(n2:n2+1,n3),U1(n2:n2+1,n3),U2(n2:n2+1,n3),U3(n2:n2+1,n3),U4(n2:n2+1,n3),'F');
-            rslx = riemansolver(gamma,rho(n2-1:n2,n3),u(n2-1:n2,n3),v(n2-1:n2,n3),H(n2-1:n2,n3),P(n2-1:n2,n3),U1(n2-1:n2,n3),U2(n2-1:n2,n3),U3(n2-1:n2,n3),U4(n2-1:n2,n3),'F');
-            rsrx = riemansolver(gamma,rho(n2+1:n2+2,n3),u(n2+1:n2+2,n3),v(n2+1:n2+2,n3),H(n2+1:n2+2,n3),P(n2+1:n2+2,n3),U1(n2+1:n2+2,n3),U2(n2+1:n2+2,n3),U3(n2+1:n2+2,n3),U4(n2+1:n2+2,n3),'F');
-            alpha_x= cell2mat((rsx(1)));
+            % Solving the Riemann problem
+            % 2次精度風上TVD - Harten-Yee TVD Scheme
+
+            rsx = riemannsolver(gamma,rho(n2:n2+1,n3),u(n2:n2+1,n3), v(n2:n2+1,n3),H(n2:n2+1,n3),P(n2:n2+1,n3),U1(n2:n2+1,n3),U2(n2:n2+1,n3),U3(n2:n2+1,n3),U4(n2:n2+1,n3),'F');
+            rslx = riemannsolver(gamma,rho(n2-1:n2,n3),u(n2-1:n2,n3),v(n2-1:n2,n3),H(n2-1:n2,n3),P(n2-1:n2,n3),U1(n2-1:n2,n3),U2(n2-1:n2,n3),U3(n2-1:n2,n3),U4(n2-1:n2,n3),'F');
+            rsrx = riemannsolver(gamma,rho(n2+1:n2+2,n3),u(n2+1:n2+2,n3),v(n2+1:n2+2,n3),H(n2+1:n2+2,n3),P(n2+1:n2+2,n3),U1(n2+1:n2+2,n3),U2(n2+1:n2+2,n3),U3(n2+1:n2+2,n3),U4(n2+1:n2+2,n3),'F');
+            alpha_x= cell2mat(rsx(1));
             R_x= cell2mat(rsx(2));
             lambda_x = cell2mat(rsx(3));
             alpha_lx = cell2mat(rslx(1));
             alpha_rx = cell2mat(rsrx(1));
-            ecpx = ecp * max(abs(lambda_x));
-            ff1_x = dt/dx*lambda_x.^2;
-            ff2_x = abs(lambda_x);
-            sss_x = sign(alpha_x);
-            qqq_x = zeros(4,1);
+            ph_x = zeros(4,1);
+
             for ni = 1:4
-                if ff2_x(ni) < ecpx
-                    ff2_x(ni) = (ff2_x(ni)^2+ecpx^2)/2/ecpx;
+                % 線形場と非線形場で分けたほうがいい説もある。非線形はminmod, 線形はsuperbee
+                if ismember(ni, 1:2)
+                    g_lx = superbee(alpha_lx(ni), alpha_x(ni));
+                    g_rx = superbee(alpha_x(ni), alpha_rx(ni));
+                else
+                    g_lx = minmod(alpha_lx(ni), alpha_x(ni));
+                    g_rx = minmod(alpha_x(ni), alpha_rx(ni));
                 end
-                qqq_x(ni) = sss_x(ni)*max(0, min([sss_x(ni)*2*alpha_lx(ni), sss_x(ni)*2*alpha_x(ni), sss_x(ni)*2*alpha_rx(ni), sss_x(ni)/2*(alpha_lx(ni)+alpha_rx(ni))]));
+                if alpha_x(ni) == 0
+                    beta_x = 0;
+                else
+                    beta_x = tvd_sigma(lambda_x(ni),dtdx,delta)*(g_rx-g_lx)/alpha_x(ni);
+                end
+                ph_x(ni) = tvd_sigma(lambda_x(ni),dtdx,delta)*(g_lx+g_rx) - enthalpy_fix(lambda_x(ni)+beta_x, delta)*alpha_x(ni);
             end
+
             if (umax<max(abs(lambda_x)))
                 umax = max(abs(lambda_x));
-            end            
-            ph_x = -ff1_x.*qqq_x'-ff2_x.*(alpha_x-qqq_x)';
-            tvd_x = R_x*ph_x';
+            end
+            tvd_x = R_x*ph_x;
+            % tvd_x = -R_x*diag(abs(lambda_x))*alpha_x; % ここをTVDスキームに変えるだけでTVDにできる
+
             F1_half(n2,n3) = 1/2*(F1(n2+1,n3)+F1(n2,n3)+tvd_x(1));
             F2_half(n2,n3) = 1/2*(F2(n2+1,n3)+F2(n2,n3)+tvd_x(2));
             F3_half(n2,n3) = 1/2*(F3(n2+1,n3)+F3(n2,n3)+tvd_x(3));
             F4_half(n2,n3) = 1/2*(F4(n2+1,n3)+F4(n2,n3)+tvd_x(4));
             
+
             % Direction r
-            rsr = riemansolver(gamma,rho(n2,n3:n3+1),u(n2,n3:n3+1), v(n2,n3:n3+1),H(n2,n3:n3+1),P(n2,n3:n3+1),U1(n2,n3:n3+1),U2(n2,n3:n3+1),U3(n2,n3:n3+1),U4(n2,n3:n3+1),'G');
-            rslr = riemansolver(gamma,rho(n2,n3-1:n3),u(n2,n3-1:n3),v(n2,n3-1:n3),H(n2,n3-1:n3),P(n2,n3-1:n3),U1(n2,n3-1:n3),U2(n2,n3-1:n3),U3(n2,n3-1:n3),U4(n2,n3-1:n3),'G');
-            rsrr = riemansolver(gamma,rho(n2,n3+1:n3+2),u(n2,n3+1:n3+2),v(n2,n3+1:n3+2),H(n2,n3+1:n3+2),P(n2,n3+1:n3+2),U1(n2,n3+1:n3+2),U2(n2,n3+1:n3+2),U3(n2,n3+1:n3+2),U4(n2,n3+1:n3+2),'G');
+            % % Solving the linear problem
+            % % 2次精度風上TVD
+            rsr = riemannsolver(gamma,rho(n2,n3:n3+1),u(n2,n3:n3+1), v(n2,n3:n3+1),H(n2,n3:n3+1),P(n2,n3:n3+1),U1(n2,n3:n3+1),U2(n2,n3:n3+1),U3(n2,n3:n3+1),U4(n2,n3:n3+1),'G');
+            rslr = riemannsolver(gamma,rho(n2,n3-1:n3),u(n2,n3-1:n3),v(n2,n3-1:n3),H(n2,n3-1:n3),P(n2,n3-1:n3),U1(n2,n3-1:n3),U2(n2,n3-1:n3),U3(n2,n3-1:n3),U4(n2,n3-1:n3),'G');
+            rsrr = riemannsolver(gamma,rho(n2,n3+1:n3+2),u(n2,n3+1:n3+2),v(n2,n3+1:n3+2),H(n2,n3+1:n3+2),P(n2,n3+1:n3+2),U1(n2,n3+1:n3+2),U2(n2,n3+1:n3+2),U3(n2,n3+1:n3+2),U4(n2,n3+1:n3+2),'G');
             alpha_r= cell2mat(rsr(1));
             R_r= cell2mat(rsr(2));
             lambda_r = cell2mat(rsr(3));
             alpha_lr = cell2mat(rslr(1));
             alpha_rr = cell2mat(rsrr(1));
-            ecpr = ecp * max(abs(lambda_r));
-            ff1_r = dt/dr*lambda_r.^2;
-            ff2_r = abs(lambda_r);
-            sss_r = sign(alpha_r);
-            qqq_r = zeros(4,1);
+            ph_r = zeros(4,1);
+
             for ni = 1:4
-                if ff2_r(ni) < ecpr
-                    ff2_r(ni) = (ff2_r(ni)^2+ecpr^2)/2/ecpr;
+                if ismember(ni, 1:2)
+                    g_lr = superbee(alpha_lr(ni), alpha_r(ni));
+                    g_rr = superbee(alpha_r(ni), alpha_rr(ni));
+                else
+                    g_lr = minmod(alpha_lr(ni), alpha_r(ni));
+                    g_rr = minmod(alpha_r(ni), alpha_rr(ni));
                 end
-                qqq_r(ni) = sss_r(ni)*max(0, min([sss_r(ni)*2*alpha_lr(ni), sss_r(ni)*2*alpha_r(ni), sss_r(ni)*2*alpha_rr(ni), sss_r(ni)/2*(alpha_lr(ni)+alpha_rr(ni))]));
+                if alpha_r(ni) == 0
+                    beta_r = 0;
+                else
+                    beta_r = tvd_sigma(lambda_r(ni),dtdr,delta)*(g_rr-g_lr)/alpha_r(ni);
+                end
+                ph_r(ni) = tvd_sigma(lambda_r(ni),dtdr,delta)*(g_lr+g_rr) - enthalpy_fix(lambda_r(ni)+beta_r, delta)*alpha_r(ni);
             end
+
             if (vmax<max(abs(lambda_r)))
                 vmax = max(abs(lambda_r));
             end
-            
-            ph_r = -ff1_r.*qqq_r'-ff2_r.*(alpha_r-qqq_r)';
-            tvd_r = R_r*ph_r';
-            if H(n2,n3) > H(n2,n3+1)
-                alpha_r
-                R_r
-                lambda_r
-                ff1_r
-                ff2_r
-                sss_r
-                qqq_r
-                ph_r
-                tvd_r
-            end
-            G1_half(n2,n3) = 1/2*(G1(n2+1,n3)+G1(n2,n3)+tvd_r(1));
-            G2_half(n2,n3) = 1/2*(G2(n2+1,n3)+G2(n2,n3)+tvd_r(2));
-            G3_half(n2,n3) = 1/2*(G3(n2+1,n3)+G3(n2,n3)+tvd_r(3));
-            G4_half(n2,n3) = 1/2*(G4(n2+1,n3)+G4(n2,n3)+tvd_r(4));
+            tvd_r = R_r*ph_r;
+            % tvd_r = -R_r*diag(abs(lambda_r))*alpha_r; % ここをTVDスキームに変えるだけでTVDにできる
 
+            G1_half(n2,n3) = 1/2*(G1(n2,n3+1)+G1(n2,n3)+tvd_r(1));
+            G2_half(n2,n3) = 1/2*(G2(n2,n3+1)+G2(n2,n3)+tvd_r(2));
+            G3_half(n2,n3) = 1/2*(G3(n2,n3+1)+G3(n2,n3)+tvd_r(3));
+            G4_half(n2,n3) = 1/2*(G4(n2,n3+1)+G4(n2,n3)+tvd_r(4));
         end
     end
+
+    % Boundary Conditions
+
+    F1_half(1,:) = F1_half(2,:);
+    F2_half(1,:) = F2_half(2,:);
+    F3_half(1,:) = F3_half(2,:);
+    F4_half(1,:) = F4_half(2,:);
+
+    G1_half(1,:) = G1_half(2,:);
+    G2_half(1,:) = G2_half(2,:);
+    G3_half(1,:) = G3_half(2,:);
+    G4_half(1,:) = G4_half(2,:);
+
+    F1_half(:,1) = F1_half(:,2);
+    F2_half(:,1) = F2_half(:,2);
+    F3_half(:,1) = F3_half(:,2);
+    F4_half(:,1) = F4_half(:,2);
+
+    G1_half(:,1) = G1_half(:,2);
+    G2_half(:,1) = G2_half(:,2);
+    G3_half(:,1) = G3_half(:,2);
+    G4_half(:,1) = G4_half(:,2);
+
     
     if (mod(n1,ng) == 0)
         I = I+1;
@@ -428,7 +460,7 @@ for n1 = 1:nt
         title('Pressure Colormap /atm');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        % zlim([1 60]);
+        zlim([1 100]);
         frame = getframe(gcf);
         writeVideo(vp,frame);
         
@@ -440,7 +472,7 @@ for n1 = 1:nt
         title('Temperature Colormap /K');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([1 1*1e6]);
+        zlim([1 1*1e5]);
         frame = getframe(gcf);
         writeVideo(vt,frame);
         
@@ -464,7 +496,7 @@ for n1 = 1:nt
         title('v Colormap / km/s');
         ylabel('Position z /mm');
         xlabel('Position r /mm');
-        zlim([-5 3]);
+        zlim([0 3]);
         frame = getframe(gcf);
         writeVideo(vv,frame);
         
@@ -492,6 +524,8 @@ writematrix(t_txt,fullfile(base_dir,'time_scale.csv'))
 writematrix(x_list,fullfile(base_dir,'x_scale.csv'))
 writematrix(r_list,fullfile(base_dir,'r_scale.csv'))
 writematrix(Pplateau/1e5,fullfile(base_dir,'plateau_pressure_data.csv'))
+
+disp(['time: ',num2str(t*1e6),' us']) % 時刻
 
 toc
 
