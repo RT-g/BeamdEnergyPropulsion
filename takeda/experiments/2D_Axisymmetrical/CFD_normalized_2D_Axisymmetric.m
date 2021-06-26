@@ -183,10 +183,10 @@ for n1 = 1:nt
     W_T = W_T0*1e-3; %m
 
     % 波頭の値
-    [u_ionz0, intercept0, b_s0, r0, cosine0] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, h, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
+    u_ionz0 = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, 0, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
     x_laser0 = x_laser0 + u_ionz0 * dt; %m Ionized wave front
 
-    % η方向の計算
+    % η方向(波面に沿った方向)の計算
     for n3 = 1:nh
         h = n3*dh; %m, general coordinate
 
@@ -203,17 +203,8 @@ for n1 = 1:nt
         h_x(:,n3) = 0;
         h_r(:,n3) = (1-a_s*r(n3)^2)^(-b_s);
 
-        % ξ方向の計算
-        for n2 = 1:nx
-            x = n2*dx; %m, general coordinate
-            % 加熱領域をx_laser0よりも前にしてしまうと計算が壊れるので実際に考えられる値よりも少し進めたほうがいい?
-            if x > x_laser0-l && x < x_laser0 % ξが現実の長さを表しているわけではないので実際は少し補正が必要だが、ここでは無視
-                % W(n2,n3) = eta * S_laser(n3) / l * 1e9; %W/m3
-                W(n2,n3) = eta * S_laser0 / l * 1e9; %W/m3
-            else
-                W(n2,n3) = 0;
-            end
-        end
+        % あるηにおける各ξのWをアップデート
+        W = DecideHeatingSource(W, nx, x_laser0, l, S_laser0);
     end
     % Beam Warming Calculation ビームウォーミング法
     Q1_cal = Q1 + dQ_1;
@@ -225,10 +216,7 @@ for n1 = 1:nt
     [Q1_cal, Q2_cal, Q3_cal, Q4_cal] = setBoundaryCondition(Q1_cal, Q2_cal, Q3_cal, Q4_cal, nx, nh);
 
     % 各行列の更新
-    Q1 = Q1_cal;
-    Q2 = Q2_cal;
-    Q3 = Q3_cal;
-    Q4 = Q4_cal;
+    [Q1, Q2, Q3, Q4] = [Q1_cal, Q2_cal, Q3_cal, Q4_cal];
 
     rho = J.*Q1;
     u = J.*Q2./rho; %ξ方向速度
