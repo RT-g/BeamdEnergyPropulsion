@@ -229,14 +229,7 @@ for n1 = 1:nt
     W_T = W_T0*1e-3; %m
 
     % 波頭の値
-    S_laser0 = R_peak * Power_laser / 4 / W_G / W_T * 1e-3; % GW/m^2 波頭のレーザー強度
-    u_ionz_line1 = slope * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept * a; %m/s 波頭の速度
-    u_ionz_line3 = slope_low * (S_laser0 * 1e9 / rho_0 / a ^ 3) ^ intercept_low * a;
-    if (u_ionz_line1 > u_ionz_line3)
-        u_ionz0 = u_ionz_line1; % Line1, 松井さん博論
-    else
-        u_ionz0 = u_ionz_line3; % Line3, 松井さん博論
-    end
+    [u_ionz0] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0);
     x_laser0 = x_laser0 + u_ionz0 * dt; %m Ionized wave front
 
     % η方向の計算
