@@ -208,23 +208,13 @@ I = 0;
 
 for n1 = 1:nt
     % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
-    % レーザー強度の関数の形状に応じてクーラン数を調整
-    if (t*1e6<0.085)
-        CFL=0.7;
-    elseif (t*1e6<0.125)
-        CFL=0.8;
-    else
-        CFL=0.9;
-    end
-
     dt = CFL * min(dx/umax,  dh/vmax); %s, 計算位置>波面位置となるようにdtを決定
 
     t = t+dt; %s
     t_list(n1,1) = t * 1e6; %us
 
     % レーザー強度の時間減衰(10J) 単位はMW
-    Power_laser = 1;
-    % Power_laser = 8.15*exp(-0.866*t*1e6);
+    Power_laser = 1; %8.15*exp(-0.866*t*1e6);
     % 正確に再現すると温度などが高く出すぎる
 %     if (t*1e6<0.085)
 %         Power_laser = 287.9222823*t*1e6+0.0005175756469;
