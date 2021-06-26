@@ -164,7 +164,8 @@ for n1 = 1:nt
     t_list(n1,1) = t * 1e6; %us
 
     % レーザー強度の時間減衰(10J) 単位はMW
-    Power_laser = 8.15*exp(-0.866*t*1e6); 
+    Power_laser = 8.15*exp(-0.866*t*1e6);
+    %Power_laser = 1; 
     % 正確に再現すると温度などが高く出すぎる
     % if (t*1e6<0.085)
     %     Power_laser = 287.9222823*t*1e6+0.0005175756469;
@@ -200,6 +201,7 @@ for n1 = 1:nt
         G_r = A_G*exp(-2*(r*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r*1e3/sqrt(2)/sigma_G2)^2);
         T_r = A_T*exp(-2*(r*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r*1e3/sqrt(2)/sigma_T2)^2);
         S_laser = R_peak * Power_laser/4/W_G/W_T*G_r*T_r*1e-3; %局所レーザー強度, GW/m2
+        %S_laser = S_laser0;
         x_laser = x_laser - sqrt((S_laser0/S_laser) ^(2*b/(1-b))-1)*dr;  %m 松井さんD論より、横方向の波面位置を積分により導出。最初の方は外側は負の値            
         if x_laser > 0
             xionz(n3,1) = x_laser; % 電離波面の進展位置。加熱箇所を可視化する。

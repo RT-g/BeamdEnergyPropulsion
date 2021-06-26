@@ -221,7 +221,7 @@ for n1 = 1:nt
                 w = 0;
             end
 
-            % Euler Calculation 有限体積法
+            % Euler Calculation 有限体積法、一次後退差分(風上差分)
             rn = abs(r);
             U1_cal(n2,n3) = U1(n2,n3) - dtdx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dtdr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
             U2_cal(n2,n3) = U2(n2,n3) - dtdx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dtdr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;

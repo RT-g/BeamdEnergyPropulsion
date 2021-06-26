@@ -29,8 +29,8 @@ nx = 1000; % Number of position segments, xは進展方向
 nr = 1000; %2.5e-3/dr; %全長2.5 mmになるように設定 
 nt = 5000; % Number of time segments
 ng = 40;%40; % Graphの分割数を決める値
-CFL = 0.7; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
-delta = 0.001; %エントロピー補正量？大体10%
+CFL = 0.5; % クーラン数 1以下にする 0.5~0.99くらいで，小さくしすぎると進みが遅い
+delta = 0.1; %エントロピー補正量？大体10%
 select_gas = 'air';
 
 % Physical Values
@@ -149,37 +149,24 @@ vmax = u_ionz0;
 I = 0;
 
 for n1 = 1:nt
-    % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる
-    % レーザー強度の関数の形状に応じてクーラン数を調整
-    if (t*1e6<0.085)
-        CFL=0.7;
-    elseif (t*1e6<0.125)
-        CFL=0.8;
-    else
-        CFL=0.9; 
-    end
-    
+    % 時間刻み幅の設定。ここ次第で計算がいくらでも長くなる    
     dt = CFL * min(dx/umax,  dr/vmax); %s, 計算位置>波面位置となるようにdtを決定
     dtdx = dt/dx;
     dtdr = dt/dr;
 
     t = t+dt; %s
-    if ~isreal(t)
-        disp('t崩壊')
-        break
-    end
     t_list(n1,1) = t * 1e6; %us
 
     % レーザー強度の時間減衰(10J) 単位はMW
-    % Power_laser = 8.15*exp(-0.866*t*1e6); 
+    Power_laser = 8.15*exp(-0.866*t*1e6); 
     % 正確に再現すると温度などが高く出すぎる
-    if (t*1e6<0.085)
-        Power_laser = 287.9222823*t*1e6+0.0005175756469;
-    elseif (t*1e6<0.125)
-        Power_laser =-476.3277981*t*1e6+66.1043297;
-    else
-        Power_laser = 8.15*exp(-0.866*t*1e6); 
-    end  
+    % if (t*1e6<0.085)
+    %     Power_laser = 287.9222823*t*1e6+0.0005175756469;
+    % elseif (t*1e6<0.125)
+    %     Power_laser =-476.3277981*t*1e6+66.1043297;
+    % else
+    %     Power_laser = 8.15*exp(-0.866*t*1e6); 
+    % end  
     
     % 進展方向のレーザー強度の変化を考慮しない場合のビーム半径
     W_G = W_G0*1e-3; %m
@@ -234,7 +221,7 @@ for n1 = 1:nt
                 w = 0;
             end
 
-            % Euler Calculation 有限体積法
+            % Euler Calculation 有限体積法、一次後退差分(風上差分)
             rn = abs(r);
             U1_cal(n2,n3) = U1(n2,n3) - dtdx*(F1_half(n2,n3)-F1_half(n2-1,n3)) - dtdr*(G1_half(n2,n3)-G1_half(n2,n3-1))-dt/rn*G1(n2,n3);
             U2_cal(n2,n3) = U2(n2,n3) - dtdx*(F2_half(n2,n3)-F2_half(n2-1,n3)) - dtdr*(G2_half(n2,n3)-G2_half(n2,n3-1))-dt/rn*G2(n2,n3) ;
@@ -252,7 +239,7 @@ for n1 = 1:nt
         %T_x(i) = (gamma-1)*(U4_cal(i,2)-(1/2)*(U2_cal(i,2).^2+U3_cal(i,2).^2)./U1_cal(i,2))./U1_cal(i,2)/R; % Temperature to set the condition
         U1_cal(i,1) = U1_cal(i,2); 
         U2_cal(i,1) = U2_cal(i,2); 
-        U3_cal(i,1) = U3_cal(i,2);  %0; %中心ではur=0のはず
+        U3_cal(i,1) = 0; %中心ではur=0のはず
         U4_cal(i,1) = U4_cal(i,2);
     end
     
@@ -293,25 +280,10 @@ for n1 = 1:nt
     
 
     % 各行列の更新
-    
-    % Lax - Wendroff Scheme
-    cfl = 0.5;
     U1 = U1_cal;
     U2 = U2_cal;
     U3 = U3_cal;
     U4 = U4_cal;
-    for n2 = 2:nx-1
-        U1(n2,:) = 0.5*cfl*(1+cfl)*U1_cal(n2-1,:)+(1-cfl^2)*U1_cal(n2,:)-0.5*cfl*(1-cfl)*U1_cal(n2+1,:);
-        U2(n2,:) = 0.5*cfl*(1+cfl)*U2_cal(n2-1,:)+(1-cfl^2)*U2_cal(n2,:)-0.5*cfl*(1-cfl)*U2_cal(n2+1,:);
-        U3(n2,:) = 0.5*cfl*(1+cfl)*U3_cal(n2-1,:)+(1-cfl^2)*U3_cal(n2,:)-0.5*cfl*(1-cfl)*U3_cal(n2+1,:);
-        U4(n2,:) = 0.5*cfl*(1+cfl)*U4_cal(n2-1,:)+(1-cfl^2)*U4_cal(n2,:)-0.5*cfl*(1-cfl)*U4_cal(n2+1,:);
-    end
-    for n3 = 2:nr-1
-        U1(:,n3) = 0.5*cfl*(1+cfl)*U1_cal(:,n3-1)+(1-cfl^2)*U1_cal(:,n3)-0.5*cfl*(1-cfl)*U1_cal(:,n3+1);
-        U2(:,n3) = 0.5*cfl*(1+cfl)*U2_cal(:,n3-1)+(1-cfl^2)*U2_cal(:,n3)-0.5*cfl*(1-cfl)*U2_cal(:,n3+1);
-        U3(:,n3) = 0.5*cfl*(1+cfl)*U3_cal(:,n3-1)+(1-cfl^2)*U3_cal(:,n3)-0.5*cfl*(1-cfl)*U3_cal(:,n3+1);
-        U4(:,n3) = 0.5*cfl*(1+cfl)*U4_cal(:,n3-1)+(1-cfl^2)*U4_cal(:,n3)-0.5*cfl*(1-cfl)*U4_cal(:,n3+1);
-    end
     
     rho = U1;
     u = U2./rho; %軸方向速度
@@ -385,9 +357,6 @@ for n1 = 1:nt
                 umax = max(abs(lambda_x));
             end
             tvd_x = R_x*ph_x;
-            if ~isreal(tvd_x)
-                return 'tvd_xが最初に崩壊'
-            end
             % tvd_x = -R_x*diag(abs(lambda_x))*alpha_x; % ここをTVDスキームに変えるだけでTVDにできる
 
             F1_half(n2,n3) = 1/2*(F1(n2+1,n3)+F1(n2,n3)+tvd_x(1));
@@ -435,22 +404,6 @@ for n1 = 1:nt
             G2_half(n2,n3) = 1/2*(G2(n2,n3+1)+G2(n2,n3)+tvd_r(2));
             G3_half(n2,n3) = 1/2*(G3(n2,n3+1)+G3(n2,n3)+tvd_r(3));
             G4_half(n2,n3) = 1/2*(G4(n2,n3+1)+G4(n2,n3)+tvd_r(4));
-            if ~isreal(G1_half)
-                disp('G1_harfが最初に崩壊')
-                break
-            end
-            if ~isreal(G2_half)
-                disp('G2が最初に崩壊')
-                break
-            end
-            if ~isreal(G3_half)
-                disp('G3が最初に崩壊')
-                break
-            end
-            if ~isreal(G4_half)
-                disp('G4が最初に崩壊')
-                break
-            end
         end
     end
 
