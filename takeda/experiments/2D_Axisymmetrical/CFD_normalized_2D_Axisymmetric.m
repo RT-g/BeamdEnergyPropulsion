@@ -119,56 +119,18 @@ Q3_cal = zeros(nx,nh);
 Q4_cal = ones(nx,nh).*P/(gamma-1);
 
 % diff vector of states
-dQ_1 = zeros(nx,nh);
-dQ_2 = zeros(nx,nh);
-dQ_3 = zeros(nx,nh);
-dQ_4 = zeros(nx,nh);
-
-rhs1 = zeros(nx,nh);
-rhs2 = zeros(nx,nh);
-rhs3 = zeros(nx,nh);
-rhs4 = zeros(nx,nh);
-
-dQ1_1 = zeros(nx,nh);
-dQ1_2 = zeros(nx,nh);
-dQ1_3 = zeros(nx,nh);
-dQ1_4 = zeros(nx,nh);
-
-dQ2_1 = zeros(nx,nh);
-dQ2_2 = zeros(nx,nh);
-dQ2_3 = zeros(nx,nh);
-dQ2_4 = zeros(nx,nh);
-
-dQ3_1 = zeros(nx,nh);
-dQ3_2 = zeros(nx,nh);
-dQ3_3 = zeros(nx,nh);
-dQ3_4 = zeros(nx,nh);
-
-dQ4_1 = zeros(nx,nh);
-dQ4_2 = zeros(nx,nh);
-dQ4_3 = zeros(nx,nh);
-dQ4_4 = zeros(nx,nh);
-
-dQ5_1 = zeros(nx,nh);
-dQ5_2 = zeros(nx,nh);
-dQ5_3 = zeros(nx,nh);
-dQ5_4 = zeros(nx,nh);
+[dQ_1, dQ_2, dQ_3, dQ_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[rhs1, rhs2, rhs3, rhs4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[dQ1_1, dQ1_2, dQ1_3, dQ1_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[dQ2_1, dQ2_2, dQ2_3, dQ2_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[dQ3_1, dQ3_2, dQ3_3, dQ3_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[dQ4_1, dQ4_2, dQ4_3, dQ4_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
+[dQ5_1, dQ5_2, dQ5_3, dQ5_4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
 
 % Vector of flux
-E1 = zeros(nx,nh); % 0
-E2 = P; % P
-E3 = zeros(nx,nh); % 0
-E4 = zeros(nx,nh); % 0
-
-F1 = zeros(nx,nh); %0
-F2 = zeros(nx,nh); %0
-F3 = P; %P
-F4 = zeros(nx,nh); %0
-
-H1 = zeros(nx,nh); %0
-H2 = zeros(nx,nh); %0
-H3 = zeros(nx,nh); %0
-H4 = zeros(nx,nh); %0
+[E1, E2, E3, E4] = [zeros(nx,nh), P, zeros(nx,nh), zeros(nx,nh)];
+[F1, F2, F3, F4] = [zeros(nx,nh), zeros(nx,nh), P, zeros(nx,nh)];
+[H1, H2, H3, H4] = [zeros(nx,nh), zeros(nx,nh), zeros(nx,nh), zeros(nx,nh)];
 
 W = zeros(nx,nh);
 
@@ -214,22 +176,14 @@ for n1 = 1:nt
     t_list(n1,1) = t * 1e6; %us
 
     % レーザー強度の時間減衰(10J) 単位はMW
-    Power_laser = 1; %8.15*exp(-0.866*t*1e6);
-    % 正確に再現すると温度などが高く出すぎる
-%     if (t*1e6<0.085)
-%         Power_laser = 287.9222823*t*1e6+0.0005175756469;
-%     elseif (t*1e6<0.125)
-%         Power_laser =-476.3277981*t*1e6+66.1043297;
-%     else
-%         Power_laser = 8.15*exp(-0.866*t*1e6);
-%     end
+    Power_laser = DecidePowerLaser(t); %第二引数をtrueにすると急峻な立ち上がりを再現する。第一引数を定数にすれば
 
     % 進展方向のレーザー強度の変化を考慮しない場合のビーム半径
     W_G = W_G0*1e-3; %m
     W_T = W_T0*1e-3; %m
 
     % 波頭の値
-    [u_ionz0] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0);
+    [u_ionz0, intercept0, b_s0, r0, cosine0] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, h, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
     x_laser0 = x_laser0 + u_ionz0 * dt; %m Ionized wave front
 
     % η方向の計算
@@ -238,34 +192,10 @@ for n1 = 1:nt
 
         % 速度の調整
         % ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
-        % line1
-        b_s_line1 = intercept/(1-intercept);
-        r_line1 = -(2/(3*a_s^2*b_s_line1^2*h + sqrt(9*a_s^4*b_s_line1^4*h^2 + 4*a_s^3*b_s_line1^3)))^(1/3) + ((3*a_s^2*b_s_line1^2*h + sqrt(9*a_s^4*b_s_line1^4*h^2 + 4*a_s^3*b_s_line1^3))/2)^(1/3)/a_s/b_s_line1; %m, Cartesian coordinates
-        G_r_line1 = A_G*exp(-2*(r_line1*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r_line1*1e3/sqrt(2)/sigma_G2)^2);
-        T_r_line1 = A_T*exp(-2*(r_line1*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r_line1*1e3/sqrt(2)/sigma_T2)^2);
-        cos_line1 = (G_r_line1*T_r_line1)^b_s_line1;
-        u_ionz_line1 = slope * (S_laser0 * cos_line1 * 1e9 / rho_0 / a ^ 3) ^ intercept * a; %m/s 波頭の速度
-        % line3
-        b_s_line3 = intercept_low/(1-intercept_low);
-        r_line3 = -(2/(3*a_s^2*b_s_line3^2*h + sqrt(9*a_s^4*b_s_line3^4*h^2 + 4*a_s^3*b_s_line3^3)))^(1/3) + ((3*a_s^2*b_s_line3^2*h + sqrt(9*a_s^4*b_s_line3^4*h^2 + 4*a_s^3*b_s_line3^3))/2)^(1/3)/a_s/b_s_line3; %m, Cartesian coordinates
-        G_r_line3 = A_G*exp(-2*(r_line3*1e3/sqrt(2)/sigma_G1)^4)+B_G*exp(-2*(r_line3*1e3/sqrt(2)/sigma_G2)^2);
-        T_r_line3 = A_T*exp(-2*(r_line3*1e3/sqrt(2)/sigma_T1)^4)+B_T*exp(-2*(r_line3*1e3/sqrt(2)/sigma_T2)^2);
-        cos_line3 = (G_r_line3*T_r_line3)^b_s_line3;
-        u_ionz_line3 = slope_low * (S_laser0 * cos_line3 * 1e9 / rho_0 / a ^ 3) ^ intercept_low * a;
-        % 速度が大きい方を取得
-        if  (u_ionz_line1 > u_ionz_line3)
-            u_ionz = u_ionz_line1; % Line1, 松井さん博論
-            b = intercept;
-            b_s = b_s_line1;
-            r(n3) = r_line1;
-            S_laser(n3) = S_laser0 * cos_line1;
-        else
-            u_ionz = u_ionz_line3; % Line3, 松井さん博論
-            b = intercept_low;
-            b_s = b_s_line3;
-            r(n3) = r_line3;
-            S_laser(n3) = S_laser0 * cos_line3;
-        end
+        [u_ionz, intercept, b_s, r, cosine] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, h, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
+        r(n3) = r;
+        S_laser(n3) = S_laser0 * cosine;
+
         % Jacobian
         J(:,n3) = (1-a_s*r(n3)^2)^(-b_s);
         x_x(:,n3) = 1;
@@ -292,50 +222,9 @@ for n1 = 1:nt
     Q4_cal = Q4 + dQ_4;
 
     % Boundary Conditions
-    % Left(回転軸)
-    for i = 2:nx-1
-        Q1_cal(i,1) = Q1_cal(i,2);
-        Q2_cal(i,1) = Q2_cal(i,2);
-        Q3_cal(i,1) = 0; %中心ではur=0のはず
-        Q4_cal(i,1) = Q4_cal(i,2);
-    end
-
-    % Right(流出)
-    for i = 2:nx-1
-        Q1_cal(i,nh) = Q1_cal(i,nh-1);
-        Q2_cal(i,nh) = Q2_cal(i,nh-1);
-        Q3_cal(i,nh) = Q3_cal(i,nh-1);
-        Q4_cal(i,nh) = Q4_cal(i,nh-1);
-    end
-
-    % Top(光軸方向)流出
-    for i = 2:nh-1
-        Q1_cal(nx,i) = Q1_cal(nx-1,i);
-        Q2_cal(nx,i) = Q2_cal(nx-1,i);
-        Q3_cal(nx,i) = Q3_cal(nx-1,i);
-        Q4_cal(nx,i) = Q4_cal(nx-1,i);
-    end
-
-    % Plate(アルミ板)
-    Q1_cal(1,:) = Q1_cal(2,:);
-    Q2_cal(1,:) = 0;
-    Q3_cal(1,:) = 0;
-    Q4_cal(1,:) = Q4_cal(2,:);
-
-    % Corners
-    Q1_cal(nx,1) = (Q1_cal(nx,2) + Q1_cal(nx-1,1))/2;
-    Q2_cal(nx,1) = (Q2_cal(nx,2) + Q2_cal(nx-1,1))/2;
-    Q3_cal(nx,1) = (Q3_cal(nx,2) + Q3_cal(nx-1,1))/2;
-    Q4_cal(nx,1) = (Q4_cal(nx,2) + Q4_cal(nx-1,1))/2;
-
-    Q1_cal(nx,nh) = (Q1_cal(nx-1,nh) + Q1_cal(nx,nh-1))/2;
-    Q2_cal(nx,nh) = (Q2_cal(nx-1,nh) + Q2_cal(nx,nh-1))/2;
-    Q3_cal(nx,nh) = (Q3_cal(nx-1,nh) + Q3_cal(nx,nh-1))/2;
-    Q4_cal(nx,nh) = (Q4_cal(nx-1,nh) + Q4_cal(nx,nh-1))/2;
-
+    [Q1_cal, Q2_cal, Q3_cal, Q4_cal] = setBoundaryCondition(Q1_cal, Q2_cal, Q3_cal, Q4_cal, nx, nh);
 
     % 各行列の更新
-
     Q1 = Q1_cal;
     Q2 = Q2_cal;
     Q3 = Q3_cal;
