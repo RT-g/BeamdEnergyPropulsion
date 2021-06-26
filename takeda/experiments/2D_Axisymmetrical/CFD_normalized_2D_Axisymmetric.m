@@ -204,7 +204,7 @@ for n1 = 1:nt
         h_r(:,n3) = (1-a_s*r(n3)^2)^(-b_s);
 
         % あるηにおける各ξのWをアップデート
-        W = DecideHeatingSource(W, nx, x_laser0, l, S_laser0);
+        W = DecideHeatingSource(W, nx, dx, x_laser0, l, S_laser0);
     end
     % Beam Warming Calculation ビームウォーミング法
     Q1_cal = Q1 + dQ_1;
