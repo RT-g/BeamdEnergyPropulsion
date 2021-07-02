@@ -7,8 +7,8 @@ global Param % Values specific to gas
 % Hyperparameter (Computation Values)
 CFL     = 0.50;     % CFL number. 1以下にする 0.5~0.99くらい;
 tEnd    = 0.05;     % Final time;
-nx      = 250;      % Number of cells/Elements in x;
-nr      = 250;      % Number of cells/Elements in r;
+nx      = 50;      % Number of cells/Elements in x;
+nr      = 50;      % Number of cells/Elements in r;
 IC      = 'constant';       % 19 IC cases are available;
 gas     = 'air';    % selected gas, air/argon/helium;
 method  = 4;	    % 1:Dim by Dim, 2:HLLE2d 1st-order, 3:HLLE2d 2nd-order;
@@ -74,7 +74,7 @@ end
 %% Solver Loop
 
 % Load GC
-q=q0; t=0; it=0; dt=dt0; a=a0; Param.LV.x_laser0=0; dq_ex=0;
+q=q0; t=0; it=0; dt=dt0; a=a0; Param.LV.x_laser0=0; dq_ex=zeros(nx,nr,4);
 
 tic
 while t < tEnd
