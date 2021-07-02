@@ -80,7 +80,6 @@ u_0 = 0;
 v_0 = 0;
 
 l = 0.2e-3; %m 加熱長さ レーザーは0.2 mm
-hr = 20; %Heating region
 
 % Initial Values
 
@@ -183,7 +182,8 @@ for n1 = 1:nt
     W_T = W_T0*1e-3; %m
 
     % 波頭の値
-    u_ionz0 = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, 0, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
+    S_laser0 = R_peak * Power_laser / 4 / W_G / W_T * 1e-3; % GW/m^2 波頭のレーザー強度
+    u_ionz0 = getSWVelocity(0);
     x_laser0 = x_laser0 + u_ionz0 * dt; %m Ionized wave front
 
     % η方向(波面に沿った方向)の計算
@@ -192,7 +192,7 @@ for n1 = 1:nt
 
         % 速度の調整
         % ガウシアン分布/トップハット分布を仮定 二次元極座標のためx,yをそれぞれr/sqrt(2)としている。
-        [u_ionz, intercept, b_s, r, cosine] = DecideSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, h, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
+        [u_ionz, intercept, b_s, r, cosine] = getSWVelocity(S_laser0, slope, slope_low, intercept, intercept_low, a, rho_0, a_s, h, sigma_G1, sigma_G2, sigma_T1, sigma_T2, A_G, A_T, B_G, B_T);
         r(n3) = r;
         S_laser(n3) = S_laser0 * cosine;
 
@@ -204,7 +204,7 @@ for n1 = 1:nt
         h_r(:,n3) = (1-a_s*r(n3)^2)^(-b_s);
 
         % あるηにおける各ξのWをアップデート
-        W = DecideHeatingSource(W, nx, dx, x_laser0, l, S_laser0);
+        W = getHeatingSource(W, nx, dx, x_laser0, l, S_laser0);
     end
     % Beam Warming Calculation ビームウォーミング法
     Q1_cal = Q1 + dQ_1;

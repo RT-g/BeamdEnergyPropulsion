@@ -1,6 +1,7 @@
-function Power_laser = DecidePowerLaser(t, precise)
+function Power_laser = getPowerLaser(t, precise)
     % 時刻に合わせて電離波面伝播速度を計算する。電離波面速度が早い方を採用するという仮定
     arguments % デフォルト値を規定
+        t = 0;
         precise = false;
     end
 
