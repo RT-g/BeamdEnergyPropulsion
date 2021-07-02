@@ -1,4 +1,4 @@
-function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
+function [dq] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
     %   A genuine 2d HLLE Riemnan solver for Euler Equations using a Monotonic
     %   Upstreat Centered Scheme for Conservation Laws (MUSCL).
     %
@@ -21,12 +21,13 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
     %
     %   Written by Ryota Takeda, JPN, 06.30.2021.
     global Param
-    res = zeros(M,N,4);
+    dq = zeros(M,N,4);
     %%%%%%%%%%%%%%%%%
     % set constants %
     %%%%%%%%%%%%%%%%%
     theta_1 = Param.hp.theta_1;
     theta_2 = Param.hp.theta_2;
+    
 
     % Normal unitary face vectors: (nx,ny)
     % normals = {[0,1], [1,0], [0,-1], [-1,0]}; % i.e.: [N, E, S, W]
@@ -37,7 +38,6 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
     v   = q(:,:,3)./rho;
     E   = q(:,:,4)./rho;
     p   = (Param.GC.gamma-1)*rho.*(E-0.5*(u.^2+v.^2));
-    c   = sqrt(Param.GC.gamma*p./rho);
 
     % Build cells
     cell(M,N).all = M*N;
@@ -46,19 +46,20 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
         [~, ~, B, r, cosine] = getSWVelocity(rg);
         for i = 1:N
             xg = i*dx; %一般化されたx. cartesianでやる場合はxと一致
-            x = xg - sqrt((1-Param.LV.a_s*r^2)^(-2*B)-1);
+            if r < 1/sqrt(Param.LV.a_s)
+                x = xg - sqrt((1-Param.LV.a_s*r^2)^(-2*B)-1);
+            else
+                disp(x)
+                break
+            end
 
             % Heat Input
-            if xg > Param.LV.x_laser0-Param.LV.l && xg < Param.LV.x_laser0 % ξが現実の長さを表しているわけではないので実際は少し補正が必要だが、ここでは無視
-                w = Param.hp.eta * Param.LV.S_laser0 * cosine / Param.LV.l * 1e9; %W/m3, local laser intencity
-            else
-                w = 0;
-            end
+            w = getHeatingSource(xg, cosine);
 
             cell(i,j).q   = [q(i,j,1);q(i,j,2);q(i,j,3);q(i,j,4)];
             cell(i,j).H   = [rho(i,j)*v(i,j); rho(i,j)*u(i,j)*v(i,j); rho(i,j)*v(i,j)^2; w + (rho(i,j)*E(i,j)+p(i,j))*v(i,j)];
-            cell(i,j).rhs = dq_ex * theta_2 / (1+theta_2); %最初にdQ_n-1を入れておく
-            cell(i,j).dQ1 = zeros(4,1);
+            cell(i,j).rhs = [dq_ex(i,j,1);dq_ex(i,j,2);dq_ex(i,j,3);dq_ex(i,j,4)] * theta_2 / (1+theta_2); %最初にdQ_n-1を入れておく
+            cell(i,j).dQ1 = zeros(4,1); %1,3,5あたりは差分する必要がないのでいらない？
             cell(i,j).dQ2 = zeros(4,1);
             cell(i,j).dQ3 = zeros(4,1);
             cell(i,j).dQ4 = zeros(4,1);
@@ -113,6 +114,7 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
                     [flux_E,lambdax,T_x] = ChakravarthyOsher(qLL,qL,q,qR,qRR,'xg',cell(i,j).Jn,cell(i-1,j).Jn); % E_{i+1/2,j}-E_{i-1/2,j}
                     lambdaxR = diag((lambdax + abs(lambdax))/2);
                     lambdaxL = diag((lambdax - abs(lambdax))/2);
+
                     % contributions to the residual of cell (i,j) and cells around it
                     cell( i,j ).rhs = cell( i,j ).rhs - flux_E*dt/dx/(1+theta_1);
 
@@ -138,32 +140,29 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
                     %%%%%%%%%%%%%%%%%%%%%%
 
                     % step1
-                    cell(i,j).dQ1 = T_x \ cell( i,j ).rhs;
+                    cell( i,j ).dQ1 = T_x \ cell( i,j ).rhs;
 
                     % step2 自信なし
                     dQ2L  = [cell(i-1,j).dQ2];
                     dQ2R  = [cell(i+1,j).dQ2];
                     cell(i,j).dQ2 = (eye(4)+theta_1/(1+theta_2)*dt/2/dx*diag(abs(lambdax)))\...
-                                    (cell(i,j).dQ1+theta_1/(1+theta_2)*dt/2/dx*(lambdaxR*dQ2L-lambdaxL*dQ2R));
+                                    (cell( i,j ).dQ1+theta_1/(1+theta_2)*dt/2/dx*(lambdaxR*dQ2L-lambdaxL*dQ2R));
 
                     % step3
-%                     disp(J);
-%                     disp(g12);
-%                     disp(g22);
                     T_rT_x = [[1,0,0,0];...
                               [0,J/2/g22,g12/g22,-J/g22];...
                               [0,G0/2-g12/2/g22,J/g22,G0/2+g12/2/g22];...
                               [0,G0/2+g12/2/g22,-J/g22,G0/2-g12/2/g22]];
-                    cell(i,j).dQ3 = T_rT_x * cell( i,j ).dQ2;
+                    cell( i,j ).dQ3 = T_rT_x * cell( i,j ).dQ2;
 
                     % step4
                     dQ4L  = [cell(i-1,j).dQ4];
                     dQ4R  = [cell(i+1,j).dQ4];
                     cell(i,j).dQ4 = (eye(4)+theta_1/(1+theta_2)*dt/2/dx*diag(abs(lambdar)))\...
-                                    (cell(i,j).dQ3+theta_1/(1+theta_2)*dt/2/dx*(lambdarR*dQ4L-lambdarL*dQ4R));
+                                    (cell( i,j ).dQ3+theta_1/(1+theta_2)*dt/2/dx*(lambdarR*dQ4L-lambdarL*dQ4R));
 
                     % step5
-                    cell(i,j).dQ5 = T_r * cell( i,j ).dQ4;
+                    cell( i,j ).dQ5 = T_r * cell( i,j ).dQ4;
 
                     % step6
                     % ソースタームのヤコビ行列
@@ -173,7 +172,7 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
                          [-u(i,j)*v(i,j),v(i,j),u(i,j),0];...
                          [-v(i,j)^2,0,2*v(i,j),0];...
                          [v(i,j)*(2*phi2-omega),-(Param.GC.gamma-1)*u(i,j)*v(i,j),omega-phi2-(Param.GC.gamma-1)*v(i,j)^2,Param.GC.gamma*v(i,j)]];
-                    cell(i,j).res = (eye(4)+theta_1/(1+theta_2)*dt/cell(i,j).r*C) \ cell( i,j ).dQ4;
+                    cell(i,j).res = (eye(4)+theta_1/(1+theta_2)*dt/cell(i,j).r*C) \ cell( i,j ).dQ5;
                 end
             end
         otherwise, error('flux option not available');
@@ -192,18 +191,18 @@ function [res] = MUSCL_HLLE(q,dq_ex,dt,dx,dr,M,N)
         cell(M-1,j).res = cell(M-2,j).res;
         cell(2,j).res = cell(3,j).res;
     end
-    
+
     % Flux contribution of the MOST EAST FACE: east face of cell j=N-1.
     for i = 2:M-1
         cell(i,N-1).res = cell(i,N-2).res;
         cell(i,2).res = cell(i,3).res;
     end
-    
+
     % Prepare residual as layers: [rho, rho*u, rho*v, rho*E]
     Nm = N-1;
     parfor i = 2:M-1
         for j = 2:Nm
-            res(i,j,:) = cell(i,j).res;
+            dq(i,j,:) = cell(i,j).res;
         end
     end
     % Q=[cell(:,:).res]; Q=reshape(Q(1,:),M,N); surf(Q);% Debug
@@ -294,7 +293,7 @@ end
         lambda = [vn; vn; vn+a*sqrt(gx^2+gr^2); vn-a*sqrt(gx^2+gr^2)];
         lambdaL = (lambda - abs(lambda))/2;
         lambdaR = (lambda + abs(lambda))/2;
-        
+
         switch axi
         case 'xg'
             C = zeros(4,4);
