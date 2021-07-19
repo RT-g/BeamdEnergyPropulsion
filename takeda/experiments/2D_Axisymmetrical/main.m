@@ -1,68 +1,75 @@
-% Title : 2D Axisymmetric CFD, general coordinate
-% Time step: 1st
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%               basic MUSCL solver for Euler system equations
+%                      by Manuel Diaz, NTU, 29.04.2015
+%
+%                         U_t + F(U)_x + G(U)_r + H(U) = 0,
+%
+% MUSCL based numerical schemes extend the idea of using a linear
+% piecewise approximation to each cell by using slope limited left and
+% right extrapolated states. This results in the following high
+% resolution, TVD discretisation scheme.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   Refs:
+%   [1] Toro, E. F., "Riemann Solvers and Numerical Methods for Fluid
+%   Dynamics" Springer-Verlag, Second Edition, 1999.
+%   [2] Balsara, Dinshaw S. "A two-dimensional HLLC Riemann solver for
+%   conservation laws: Application to Euler and magnetohydrodynamic flows."
+%   Journal of Computational Physics 231.22 (2012): 7476-7503.
+%   [3] Einfeldt, Bernd. "On Godunov-type methods for gas dynamics." SIAM
+%   Journal on Numerical Analysis 25.2 (1988): 294-318.
+%   [4] Kurganov, Alexander, and Eitan Tadmor. "Solution of two-dimensional
+%   Riemann problems for gas dynamics without Riemann problem solvers."
+%   Numerical Methods for Partial Differential Equations 18.5 (2002): 584-608.
+%   [5] Vides, Jeaniffer, Boniface Nkonga, and Edouard Audit. "A simple
+%   two-dimensional extension of the HLL Riemann solver for gas dynamics."
+%   (2014).
+%
+% coded by Ryota Takeda, 2021.07.01
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
 clear; close all; clc;
 global Param % Values specific to gas
 
 %% Parameters
-% Hyperparameter (Computation Values)
-CFL     = 0.50;     % CFL number. 1以下にする 0.5~0.99くらい;
-tEnd    = 0.05;     % Final time;
-nx      = 50;      % Number of cells/Elements in x;
-nr      = 50;      % Number of cells/Elements in r;
-IC      = 'constant';       % 19 IC cases are available;
-gas     = 'air';    % selected gas, air/argon/helium;
-method  = 4;	    % 1:Dim by Dim, 2:HLLE2d 1st-order, 3:HLLE2d 2nd-order;
-plotFig = true;     % true:visualize evolution;
-Param.hp.coodinate = 'general'; %coordinates, general/cartesian
-Param.hp.fluxMth ='ChakravarthyOsher';  % HLLE1d, HLLE2d;
-Param.hp.limiter = 'mm';
-Param.hp.theta_1 = 1;
-Param.hp.theta_2 = 0.5;
-Param.hp.kappa = 1/3;
-Param.hp.bcomp = 2; %圧縮パラメータ, (1,4]
-Param.hp.eta = 0.1; %圧縮パラメータ, (1,4]
-
-% Laser Values
-setLaserConstants
+Settings;
 
 % Discretize spatial domain
-Lx=2.5*1e-3; dx=Lx/nx; xc=dx/2:dx:Lx;
-Lr=2.5*1e-3; dr=Lr/nr; rc=dr/2:dr:Lr;
+Lx=2.5*1e-3; dx=Lx/Param.hp.nx; xc=dx/2:dx:Lx;
+Lr=2.5*1e-3; dr=Lr/Param.hp.nr; rc=dr/2:dr:Lr;
 [x,r] = meshgrid(xc,rc);
 
 % Set Initial Condition
-[r0,u0,v0,p0] = setEulerInitialCondition2d(x,r,IC,gas);
-E0 = p0./((Param.GC.gamma-1)*r0)+0.5*(u0.^2+v0.^2);  % Total Energy
-c0 = sqrt(Param.GC.gamma*p0./r0);                    % Speed of sound
-Q0 = cat(3, r0, r0.*u0, r0.*v0, r0.*E0);    % initial state
+[Q0,a0] = setIC2d(x,r,Param.hp.IC);
+
+% Run scheme
+switch Param.hp.fluxMth
+case ChakaravarthyOsher
+    fluxMth = @ChakaravarthyOsher; % 2nd-order HLLE2d (working on it)
+    O = 2;
+otherwise, error('flux assamble not available');
+end
 
 % Set q-array & adjust grid for ghost cells
-nx=nx+2; nr=nr+2; q0=zeros(nx,nr,4); q0(2:nx-1,2:nr-1,1:4)=Q0;
+% 開放端の場合は精度に応じて必要となるが、壁面の場合は要らない。
+[nx,nr,in,jn] = setGhostCells(Param.hp.nx,Param.hp.nr,O);
+q0=zeros(nx,nr,4); q0(in,jn,1:4)=Q0;
 
 % Boundary Conditions in ghost cells
-q0(:,1,:)=q0(:,2,:); q0(:,nr,:)=q0(:,nr-1,:);   % Natural BCs
-q0(1,:,:)=q0(2,:,:); q0(nx,:,:)=q0(nx-1,:,:);   % Natural BCs
+q0 = setBC2d(q0,nx,nr,O);
 
 % Discretize time domain
-vn = sqrt(u0.^2+v0.^2); lambda1=vn+c0; lambda2=vn-c0;
-a0 = max(abs([lambda1(:);lambda2(:)]));
-dt0=CFL*min(dx./a0,dr./a0);
+dt0 = Param.hp.CFL*min(dx,dr)/a0;
 
 % Initialize parpool
 poolobj = gcp('nocreate'); % If no pool, do not create new one.
 if isempty(poolobj); parpool('local',2); end
 
-% Run scheme
-switch method
-    case 1, MUSCL_EulerRes2d = @MUSCL_EulerRes2d_v0; % Do HLLE1d Dim by Dim
-    case 2, MUSCL_EulerRes2d = @MUSCL_EulerRes2d_v1; % 1st-order HLLE2d (working on it)
-    case 3, MUSCL_EulerRes2d = @MUSCL_EulerRes2d_v2; % 2nd-order HLLE2d (working on it)
-    case 4, MUSCL_EulerRes2d = @MUSCL_HLLE; % 2nd-order HLLE2d (working on it)
-    otherwise, error('flux assamble not available');
-end
+
 
 % Configure figure
-in=2:nx-1; jn=2:nr-1; % internal indexes
 if plotFig
     figure(1);
     subplot(2,2,1); [~,h1]=contourf(x,r,r0); axis('square'); xlabel('x'); ylabel('r'); title('\rho');
@@ -74,24 +81,21 @@ end
 %% Solver Loop
 
 % Load GC
-q=q0; t=0; it=0; dt=dt0; a=a0; Param.LV.x_laser0=0; dq_ex=zeros(nx,nr,4);
+q=q0; t=0; it=0; dt=dt0; a=a0; Param.LV.x_laser0=0; dq=zeros(nx,nr,4);
 
 tic
 while t < tEnd
-
-    % RK2 1st step
-    Power_laser = getPowerLaser(t);
+    % caluculate S, Uionz, x at the center
+    Power_laser = getPowerLaser(t); %変数をtから定数にすると定常解が出せる
     Param.LV.S_laser0 = Param.LV.R_peak * Power_laser/4/Param.LV.W_G/Param.LV.W_T * 1e-3; % GW/m^2 波頭のレーザー強度
     u_ionz0 = getSWVelocity(0);
     Param.LV.x_laser0 = Param.LV.x_laser0 + u_ionz0 * dt; %m Ionized wave front これはξ座標とも一致
 
-    dq = MUSCL_EulerRes2d(q,dq_ex,dt,dx,dr,nx,nr);
-    dq_ex = dq;
+    % caluculate ΔQ
+    dq = fluxMth(q,dq,dt,dx,dr,nx,nr);
     q = q + dq;
 
-    q(:,1,:)=q(:,2,:); q(:,nr,:)=q(:,nr-1,:);   % Natural BCs
-    q(1,:,:)=q(2,:,:); q(nx,:,:)=q(nx-1,:,:);   % Natural BCs
-
+    q = setBC2d(q,nx,nr,O);
 
 	% Compute flow properties
     rho=q(:,:,1); u=q(:,:,2)./rho; v=q(:,:,3)./rho; E=q(:,:,4)./rho;
