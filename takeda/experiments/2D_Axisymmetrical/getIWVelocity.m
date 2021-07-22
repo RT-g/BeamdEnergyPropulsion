@@ -1,6 +1,9 @@
-function [u_ionz, intercept, B, r, cosine] = getSWVelocity(rg)
-    % 時刻に合わせて電離波面伝播速度を計算する。電離波面速度が早い方を採用するという仮定
-    % TODO もう少し厳密な定義を考えたい
+function [u_ionz, intercept, B, r, cosine] = getIWVelocity(rg)
+    %{
+    get Ionization wave velocity
+    時刻に合わせて電離波面伝播速度を計算する。電離波面速度が早い方を採用するという仮定
+    TODO もう少し厳密な定義を考えたい
+    %}
     global Param
     [u_ionz_line1, intercept_line1, b_s_line1, r_line1, cosine_line1] = SWvelocity(Param.GC.slope, Param.GC.intercept, rg);
     [u_ionz_line3, intercept_line3, b_s_line3, r_line3, cosine_line3] = SWvelocity(Param.GC.slope_low, Param.GC.intercept_low, rg);
