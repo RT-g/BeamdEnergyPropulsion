@@ -1,4 +1,5 @@
 function  q = setBC2d(q,nx,nr,O)
+    global Param
     % axis
     switch Param.BC.bottom
         case 'rotational'
@@ -6,7 +7,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(:,1,2) = q(:,1+O,2);
             q(:,1,3) = 0; %中心ではur=0のはず
             q(:,1,4) = q(:,1+O,4);
-            if O = 2
+            if O == 2
                 q(:,2,1) = q(:,1+O,1);
                 q(:,2,2) = q(:,1+O,2);
                 q(:,2,3) = 0; %中心ではur=0のはず
@@ -21,7 +22,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(:,nr,2) = q(:,nr-O,2);
             q(:,nr,3) = q(:,nr-O,3);
             q(:,nr,4) = q(:,nr-O,4);
-            if O = 2
+            if O == 2
                 q(:,nr-1,1) = q(:,nr-O,1);
                 q(:,nr-1,2) = q(:,nr-O,2);
                 q(:,nr-1,3) = q(:,nr-O,3);
@@ -32,7 +33,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(:,nr,2) = 0;
             q(:,nr,3) = 0;
             q(:,nr,4) = q(:,nr-O,4);
-            if O = 2
+            if O == 2
                 q(:,nr-1,1) = q(:,nr-O,1);
                 q(:,nr-1,2) = 0;
                 q(:,nr-1,3) = 0;
@@ -47,7 +48,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(1,:,2) = q(1+O,:,2);
             q(1,:,3) = q(1+O,:,3);
             q(1,:,4) = q(1+O,:,4);
-            if O = 2
+            if O == 2
                 q(2,:,1) = q(1+O,:,1);
                 q(2,:,2) = q(1+O,:,2);
                 q(2,:,3) = q(1+O,:,3);
@@ -58,7 +59,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(1,:,2) = 0;
             q(1,:,3) = 0;
             q(1,:,4) = q(1+O,:,4);
-            if O = 2
+            if O == 2
                 q(2,:,1) = q(1+O,:,1);
                 q(2,:,2) = 0;
                 q(2,:,3) = 0;
@@ -73,7 +74,7 @@ function  q = setBC2d(q,nx,nr,O)
             q(nx,:,2) = q(nx-O,:,2);
             q(nx,:,3) = q(nx-O,:,3);
             q(nx,:,4) = q(nx-O,:,4);
-            if O = 2
+            if O == 2
                 q(nx-1,:,1) = q(nx-O,:,1);
                 q(nx-1,:,2) = q(nx-O,:,2);
                 q(nx-1,:,3) = q(nx-O,:,3);
@@ -82,5 +83,4 @@ function  q = setBC2d(q,nx,nr,O)
         otherwise
             error('Boundary Conditiion right is only open');
     end
-
 end

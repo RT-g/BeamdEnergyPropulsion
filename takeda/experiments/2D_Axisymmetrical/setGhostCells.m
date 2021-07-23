@@ -1,8 +1,10 @@
 function [nx,nr,in,jn] = setGhostCells(nx,nr,O)
+    global Param
     % plate
     switch Param.BC.left
     case 'closed'
         in_s = 1;
+        in_e = nx;
     case 'open'
         in_s = 1 + O;
         in_e = nx + O;
