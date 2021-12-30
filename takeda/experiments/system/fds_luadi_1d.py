@@ -13,12 +13,12 @@ R_0 = 8314.0
 R = R_0 / m
 T_0 = 293
 
-PI = 1.013e5
-RHOI = PI / R / T_0
+PI = 1  # .013e5
+RHOI = 1  # PI / R / T_0
 UI = 0.0
 
-PE = 1.013e4
-RHOE = PE / R / T_0
+PE = 0.1  # .013e4
+RHOE = 0.1  # PE / R / T_0
 UE = 0.0
 
 
@@ -62,57 +62,150 @@ def calc_CFL(Q):
     return max(sp) * dtdx
 
 
-def Roe_flux(QL, QR, E):
+def Qtoq(Q):
+    """
+    保存量ベクトルQから基本量ベクトルqを形成する
+    :param Q: 保存量ベクトルrho, rhou, e
+    :return q: 基本量ベクトルrho, u, p
+    """
+    q = np.zeros([jmax, 3])
+    rho, rhou, e = Q[:, 0], Q[:, 1], Q[:, 2]
+    u = rhou / rho
+
+    q[:, 0] = rho
+    q[:, 1] = u
+    q[:, 2] = (gamma - 1.0) * (e - 0.5 * rho * u**2)  # p
+
+    return q
+
+
+def qtoQ(q):
+    """
+    基本量ベクトルqから保存量ベクトルQを形成する
+    :param q: 基本量ベクトル
+    :return Q: 保存量ベクトル
+    """
+    Q = np.zeros([jmax, 3])
+    rho, u, p = q[:, 0], q[:, 1], q[:, 2]
+    e = p / (gamma - 1.0) + 0.5 * rho * u**2
+
+    Q[:, 0] = rho
+    Q[:, 1] = rho * u
+    Q[:, 2] = e
+
+    return Q
+
+
+def Roe_flux(qL, qR, E):
     """
     van LeerのMUSTL型FDS法(高次精度)
-    E_j+1/2を求める
-    :param QL, QR: 内挿する基本変数、共にj_+1/2を採用すること
+    Roe平均を用いて数値流束E_j+1/2を求める
+    :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
     :param E: 更新するE_j+1/2
     """
     for j in range(jmax - 1):
-        rhoL, uL, pL = QL[j, 0], QL[j, 1], QL[j, 2]
-        rhoR, uR, pR = QR[j + 1, 0], QR[j + 1, 1], QR[j + 1, 2]
+        rhoL, uL, pL = qL[    j, 0], qL[    j, 1], qL[    j, 2]
+        rhoR, uR, pR = qR[j + 1, 0], qR[j + 1, 1], qR[j + 1, 2]
 
-        eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL**2
-        eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR**2
+        rhouL = rhoL * uL
+        rhouR = rhoR * uR
+
+        eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL ** 2
+        eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR ** 2
 
         HL = (eL + pL) / rhoL
         HR = (eR + pR) / rhoR
-
-        # cL = np.sqrt((gamma - 1.0) * (HL - 0.5 * uL ** 2))
-        # cR = np.sqrt((gamma - 1.0) * (HR - 0.5 * uR ** 2))
 
         # Roe平均 式(6.38)
         sqrhoL = np.sqrt(rhoL)
         sqrhoR = np.sqrt(rhoR)
 
-        # rhoAVE = sqrhoL * sqrhoR
         uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
         HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
-        cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * uAVE**2))
-        # eAVE = rhoAVE * (HAVE - cAVE ** 2 / gamma)
+        cAVE = np.sqrt((gamma - 1.0)* (HAVE - 0.5 * uAVE ** 2))
 
         dQ = np.array([rhoR - rhoL, rhoR * uR - rhoL * uL, eR - eL])
 
         Lambda = np.diag([np.abs(uAVE - cAVE), np.abs(uAVE), np.abs(uAVE + cAVE)])
 
-        b1 = 0.5 * (gamma - 1.0) * uAVE**2 / cAVE**2
-        b2 = (gamma - 1.0) / cAVE**2
+        b1 = 0.5 * (gamma - 1.0) * uAVE ** 2 / cAVE ** 2
+        b2 = (gamma - 1.0) / cAVE ** 2
 
-        R = np.array([[               1.0,           1.0,                1.0],
-                      [       uAVE - cAVE,          uAVE,        uAVE + cAVE],
-                      [HAVE - uAVE * cAVE, 0.5 * uAVE**2, HAVE + uAVE * cAVE]])
+        R = np.array([[               1.0,              1.0,                1.0],
+                      [       uAVE - cAVE,             uAVE,        uAVE + cAVE],
+                      [HAVE - uAVE * cAVE, 0.5 * uAVE ** 2, HAVE + uAVE * cAVE]])
 
-        Rinv = np.array([[0.5 * (b1 + uAVE / cAVE), -0.5 * (b2 * uAVE + 1 / cAVE), 0.5 * b2],
-                         [                1.0 - b1,                     b2 * uAVE,      -b2],
-                         [0.5 * (b1 - uAVE / cAVE), -0.5 * (b2 * uAVE - 1 / cAVE), 0.5 * b2]])
+        Rinv = np.array([[0.5 * (b1 + uAVE / cAVE), -0.5 * (b2 * uAVE + cAVE), 0.5 * b2],
+                         [                1.0 - b1,                 b2 * uAVE,      -b2],
+                         [0.5 * (b1 - uAVE / cAVE), -0.5 * (b2 * uAVE - cAVE), 0.5 * b2]])
 
         AQ = R @ Lambda @ Rinv @ dQ
 
-        EL = np.array([rhoL * uL, pL + rhoL * uL**2, (eL + pL) * uL])
-        ER = np.array([rhoR * uR, pR + rhoR * uR**2, (eR + pR) * uR])
+        EL = np.array([rhoL * uL, pL + rhouL * uL, (eL + pL) * uL])
+        ER = np.array([rhoR * uR, pR + rhouR * uR, (eR + pR) * uR])
 
         E[j] = 0.5 * (ER + EL - AQ)  # 式(6.43)
+
+
+def Roe_flux_fail(qL, qR, E):
+    """
+    なぜか失敗する
+    forループが少なく済んでいるのでこちらにしたいところ
+    van LeerのMUSTL型FDS法(高次精度)
+    Roe平均を用いて数値流束E_j+1/2を求める
+    :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
+    :param E: 更新するE_j+1/2
+    """
+    Lambda = np.zeros([jmax, 3, 3])
+    EL, ER = np.zeros([jmax, 3]), np.zeros([jmax, 3])
+    rhoL, uL, pL = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
+    rhoR, uR, pR = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
+
+    rhoL[:-1], uL[:-1], pL[:-1] = qL[:-1, 0], qL[:-1, 1], qL[:-1, 2]
+    rhoR[:-1], uR[:-1], pR[:-1] = qR[1:, 0], qR[1:, 1], qR[1:, 2]
+
+    eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL**2
+    eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR**2
+
+    HL = (eL + pL) / rhoL
+    HR = (eR + pR) / rhoR
+
+    # Roe平均 式(6.38)
+    sqrhoL = np.sqrt(rhoL)
+    sqrhoR = np.sqrt(rhoR)
+
+    uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
+    HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
+    cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * uAVE**2))
+
+    dQAVE = qtoQ(qR) - qtoQ(qL)
+
+    Lambda[:, 0, 0] = np.abs(uAVE - cAVE)
+    Lambda[:, 1, 1] = np.abs(uAVE)
+    Lambda[:, 2, 2] = np.abs(uAVE + cAVE)
+
+    b1 = 0.5 * (gamma - 1.0) * uAVE**2 / cAVE**2
+    b2 = (gamma - 1.0) / cAVE**2
+
+    EL[:, 0] = rhoL * uL
+    EL[:, 1] = pL + rhoL * uL**2
+    EL[:, 2] = HL
+    ER[:, 0] = rhoR * uR
+    ER[:, 1] = pR + rhoR * uR**2
+    ER[:, 2] = HR
+
+    for j in range(jmax - 1):
+        R = np.array([[                        1.0,              1.0,                         1.0],
+                      [          uAVE[j] - cAVE[j],          uAVE[j],           uAVE[j] + cAVE[j]],
+                      [HAVE[j] - uAVE[j] * cAVE[j], 0.5 * uAVE[j]**2, HAVE[j] + uAVE[j] * cAVE[j]]])
+
+        Rinv = np.array([[0.5 * (b1[j] + uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] + 1 / cAVE[j]), 0.5 * b2[j]],
+                         [                      1.0 - b1[j],                        b2[j] * uAVE[j],      -b2[j]],
+                         [0.5 * (b1[j] - uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] - 1 / cAVE[j]), 0.5 * b2[j]]])
+
+        AdQ = R @ Lambda[j] @ Rinv @ dQAVE[j]
+
+        E[j] = 0.5 * (ER[j] + EL[j] - AdQ)  # 式(6.43)
 
 
 def minmod(x, y):
@@ -138,22 +231,18 @@ def MUSCL(Q, order: int = 2, kappa: float = 0, limit=minmod):
     1/3: 3rd order upwind biased
     :param limit: 制限関数。minmod, vanAlbada, superbeeなど
     minmodは安定性に長けているが、不連続は鈍る傾向にある。
-    :return QL, QR: 内挿したQL,QR(基本変数)
+    :return QL, QR: 内挿したQL_j+1/2,QR_j-1/2(基本変数)
     """
     # 基本変数で内挿する
-    rho, rhou, e = Q[:, 0], Q[:, 1], Q[:, 2]
+    q = Qtoq(Q)
 
-    Q[:, 1] = rhou / rho  # u
-    Q[:, 2] = (gamma - 1.0) * (e - 0.5 * rho * Q[:, 1] ** 2)  # p
-
-    QL = Q.copy()  # 1st order
-    QR = Q.copy()  # 1st order
+    qL = q.copy()  # 1st order
+    qR = q.copy()  # 1st order
 
     if order == 2 or order == 3:
         # 2nd / 3rd order & minmod limitter
-        dQ = np.zeros([jmax, 3])
-        for j in range(jmax - 1):
-            dQ[j] = Q[j + 1] - Q[j]
+        dq = np.zeros([jmax, 3])
+        dq[:-1] = q[1:] - q[:-1]
 
         b = (3.0 - kappa) / (1.0 - kappa)  # 式(2.74)
 
@@ -162,16 +251,16 @@ def MUSCL(Q, order: int = 2, kappa: float = 0, limit=minmod):
 
         # 制限関数の導入によりTVD化
         for j in range(1, jmax - 1):
-            Dp[j] = limit(dQ[j], b * dQ[j - 1])  # 式(2.73a)
-            Dm[j] = limit(dQ[j - 1], b * dQ[j])     # 式(2.73b)
+            Dp[j] = limit(dq[j], b * dq[j - 1])  # 式(2.73a)
+            Dm[j] = limit(dq[j - 1], b * dq[j])     # 式(2.73b)
 
-            QL[j] += 0.25 * ((1.0 + kappa) * Dp[j] + (1.0 - kappa) * Dm[j])  # QL_j+1/2 式(6.28a)
-            QR[j] -= 0.25 * ((1.0 - kappa) * Dp[j] + (1.0 + kappa) * Dm[j])  # QR_j-1/2 式(6.28b)
+            qL[j] += 0.25 * ((1.0 + kappa) * Dp[j] + (1.0 - kappa) * Dm[j])  # QL_j+1/2 式(6.28a)
+            qR[j] -= 0.25 * ((1.0 - kappa) * Dp[j] + (1.0 + kappa) * Dm[j])  # QR_j-1/2 式(6.28b)
         # 境界
-        QL[0] = QL[1]
-        QR[-1] = QR[-2]
+        # qL[0] = qL[1]
+        # qR[-1] = qR[-2]
 
-    return QL, QR
+    return qL, qR
 
 
 # 陽解法
@@ -257,43 +346,70 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
     """
     RHS = np.zeros([jmax, 3])
     E = np.zeros([jmax, 3])
-    dQ = np.zeros([jmax, 3])
 
-    for n in range(1, nmax + 1):
-        Qm = Q.copy()  # QがQnになる
+    for n in range(nmax):
+        print(n+1)
+        Qn = Q.copy()  # QがQmになる
 
         # 内部反復(inner iteration)
-        for i in range(iimax):
-            Ap, Am, sigma_x = calc_A(Qm)
+        for ttt in range(iimax):
+            Ap, Am, sigma_x = calc_A(Q)
 
             # 右辺の計算準備
-            QL, QR = MUSCL(Qm, order, kappa)  # 保存変数→基本変数
-            Roe_flux(QL, QR, E)  # 保存変数に戻る
+            qL, qR = MUSCL(Q, order, kappa)  # 保存変数→基本変数
+            Roe_flux(qL, qR, E)  # 保存変数に戻り、Eをアップデート
+            RHS[1:] = E[1:] - E[:-1]
+            dQ = np.zeros([jmax, 3])
+            dQold = np.zeros([jmax, 3])
+            # print(np.linalg.norm(RHS[1:-1, 0]), np.linalg.norm(RHS[1:-1, 1]), np.linalg.norm(RHS[1:-1, 2]))
 
+            ite = 0
+            """
+            while True:
+                ite += 1
+                dQold = dQ.copy()
+                # 第一スイープ
+                for j in range(1, jmax - 1):
+                    dQ[j] = (-(Q[j] - Qn[j]) - dtdx * RHS[j] + dtdx * Ap[j - 1] @ dQ[j - 1]) / (1 + dtdx * sigma_x[j])
+
+                # 第二, 三スイープ
+                for j in range(jmax - 2, 0, -1):
+                    dQ[j] = dQ[j] - (dtdx * Am[j + 1] @ dQ[j + 1]) / (1 + dtdx * sigma_x[j])
+
+                # 収束判定
+                if ite % 100 == 0:
+                    norm = np.zeros(3)
+                    for i in range(3):
+                        norm[i] = np.linalg.norm(dQ[1:-1, i] - dQold[1:-1, i], 1) / np.linalg.norm(RHS[1:-1, i], 1)
+                        # print(RHS[1:-1])
+                    if norm[0] < norm_limit and norm[1] < norm_limit and norm[2] < norm_limit:
+                        break
+            """
+            dQold = dQ.copy()
             # 第一スイープ
             for j in range(1, jmax - 1):
-                RHS = E[j] - E[j - 1]
-                dQ[j] = (-(Qm - Q) - dt / dx * RHS + dt / dx * Ap[j - 1] @ dQ[j - 1]) / (1 + dt / dx * sigma_x[j])
+                dQ[j] = (-(Q[j] - Qn[j]) - dtdx * RHS[j] + dtdx * Ap[j - 1] @ dQ[j - 1]) / (1 + dtdx * sigma_x[j])
 
-            # 第二スイープ
-            for j in range(1, jmax - 1):
-                dQ[j] = (1 + dt / dx * sigma_x[j]) * dQ[j]
-
-            # 第三スイープ
+            # 第二, 三スイープ
             for j in range(jmax - 2, 0, -1):
-                dQ[j] = dQ[j] - dt / dx * Am[j + 1] @ dQ[j + 1] / (1 + dt / dx * sigma_x[j])
+                dQ[j] = dQ[j] - (dtdx * Am[j + 1] @ dQ[j + 1]) / (1 + dtdx * sigma_x[j])
 
             # 収束判定
-            norm_1, norm_2, norm_3 = np.linalg.norm(dQ[0], 1), np.linalg.norm(dQ[1], 1), np.linalg.norm(dQ[2], 1)
-            if min(np.abs([norm_1, norm_2, norm_3])) < norm_limit:
+            norm = np.zeros(3)
+            for i in range(3):
+                norm[i] = np.linalg.norm(dQ[1:-1, i] - dQold[1:-1, i], 1) / np.linalg.norm(RHS[1:-1, i], 1)
+                # print(RHS[1:-1])
+            if norm[0] < norm_limit and norm[1] < norm_limit and norm[2] < norm_limit:
                 break
-            else:
-                Qm += dQ
-        Q[1:-1] = Qm[1:-1]
+            Q += dQ
+            Q[0] = Q[1]
+            Q[-1] = Q[-2]
+            # print([round(i, 1) for i in Q[:, 1]])
+    print([round(i,3) for i in Q[:, 0]])
 
 
 # 陽解法
-def MacCormack(Q, eps_c, nmax, interval=2):
+def MacCormack(Q, eps_c, nmax, interval=5):
     E = np.zeros([jmax, 3])
 
     for n in range(nmax):
@@ -318,44 +434,160 @@ def MacCormack(Q, eps_c, nmax, interval=2):
             Q[j] += k * D1 # 式(6.11)
 
 
+# 厳密解の計算
+def strict_answer():
+    """
+    :return Qext:
+    """
+    Pext = np.zeros([jmax, 3])
+    Qext = np.zeros([jmax, 3])
+
+    GUESS = 1.0
+    FINC = 0.01
+    itemax1 = 5000
+    itemax2 = 500
+
+    CI = np.sqrt(gamma * PI / RHOI)
+    CE = np.sqrt(gamma * PE / RHOE)
+    P1P5 = PI / PE
+
+    GAMI = 1.0 / gamma
+    GAMF = (gamma - 1.0) / (2.0 * gamma)
+    GAMF2 = (gamma + 1.0) / (gamma - 1.0)
+    GAMFI = 1.0 / GAMF
+
+    for it1 in range(itemax1):
+        for it2 in range(itemax2):
+            SQRT1 = (gamma - 1.0) * (CE / CI) * (GUESS - 1.0)
+            SQRT2 = np.sqrt(2.0 * gamma * (2.0 * gamma + (gamma + 1.0) * (GUESS - 1.0)))
+            FUN = GUESS * (1.0 - (SQRT1 / SQRT2)) ** (-GAMFI)
+            DIF = P1P5 - FUN
+
+            if np.abs(DIF) <= 0.000002:
+                break
+
+            if DIF >= 0.0:
+                GUESS += FINC
+            else:
+                GUESS -= FINC
+                FINC = 0.5 * FINC
+        else:
+            continue
+
+        break
+
+    P4P5 = GUESS
+    P4 = PE * P4P5
+    P3P1 = P4P5 / P1P5
+    P3 = P3P1 * PI
+
+    R4R5 = (1.0 + GAMF2 * P4P5) / (GAMF2 + P4P5)
+    RHO4 = RHOE * R4R5
+    U4 = CE * (P4P5 - 1.0) * np.sqrt(2.0 * GAMI / ((gamma + 1.0) * P4P5 + (gamma - 1.0)))
+    C4 = np.sqrt(gamma * P4 / RHO4)
+
+    R3R1 = P3P1 ** GAMI
+    RHO3 = RHOI * R3R1
+    U3 = 2.0 * CI / (gamma - 1.0) * (1.0 - P3P1 ** GAMF)
+    C3 = np.sqrt(gamma * P3 / RHO3)
+    CS =  CE * np.sqrt(0.5 * ((gamma - 1.0) * GAMI + (gamma + 1.0) * GAMI * P4 / PE))
+
+    TOT = 0.0
+    EPST = 1.0e-14
+    for n in range(nmax):
+        TOT = TOT + dt
+        rad = dt / dx
+
+        x1 = xmid - CI * TOT
+        x2 = xmid - (CI - 0.5 * (gamma + 1.0) * U3) * TOT
+        x3 = xmid + U3 * TOT
+        x4 = xmid + CS * TOT
+
+        for j in range(jmax):
+            xx = x[j]
+            if xx <= x1:
+                Qext[j, 0] = RHOI
+                Qext[j, 1] = RHOI * UI
+                Qext[j, 2] = PI / (gamma - 1.0) + 0.5 * UI * Qext[j, 1]
+                Pext[j] = PI
+            elif xx <= x2:
+                UT = UI + (U3 - UI) / ((x2 - x1) + EPST) * ((xx - x1) + EPST)
+                RTRI = (1.0 - 0.5 * (gamma - 1.0) * UT / CI) ** (2.0 / (gamma - 1.0))
+                RT = RHOI * RTRI
+                PT = RTRI ** gamma * PI
+                Qext[j, 0] = RT
+                Qext[j, 1] = RT * UT
+                Qext[j, 2] = PT / (gamma - 1.0) + 0.5 * UT * Qext[j, 1]
+                Pext[j] = PT
+            elif xx <= x3:
+                Qext[j, 0] = RHO3
+                Qext[j, 1] = RHO3 * U3
+                Qext[j, 2] = P3 / (gamma - 1.0) + 0.5 * U3 * Qext[j, 1]
+                Pext[j] = P3
+            elif xx <= x4:
+                Qext[j, 0] = RHO4
+                Qext[j, 1] = RHO4 * U4
+                Qext[j, 2] = P4 / (gamma - 1.0) + 0.5 * U4 * Qext[j, 1]
+                Pext[j] = P4
+            else:
+                Qext[j, 0] = RHOE
+                Qext[j, 1] = RHOE * UE
+                Qext[j, 2] = PE / (gamma - 1.0) + 0.5 * UE * Qext[j, 1]
+                Pext[j] = PE
+    return Qext
+
+
 if __name__ == '__main__':
-    nmax = 1
+    nmax = 100
     print_interval = 4
 
     order = 2
     kappa = 0
+    Q0 = init()
+    Q = Q0.copy()
+    implicit_solution(Q, order, kappa, nmax, iimax=50)
+    # Roe_FDS(Q, order, kappa, nmax)
 
-    Q = init()
-    implicit_solution(Q, order, kappa, nmax)
-
+    Qext = strict_answer()
 
     # ### 結果の可視化
     plt.figure(figsize=(8,8), dpi=100)  # グラフのサイズ
     plt.rcParams["font.size"] = 22  # グラフの文字サイズ
+    plt.plot(x, Q0[:,0], color='green', linewidth=1.5, label='Numerical')
     plt.plot(x, Q[:,0], color='red', linewidth=1.5, label='Numerical')
+    plt.plot(x, Qext[:,0], color='black', linewidth = 1.0, linestyle = 'dashed', label = 'Analytical')
     plt.grid(color='black', linestyle='dotted', linewidth=0.5)
     plt.xlabel('x')
     plt.ylabel(r'$\rho$')
+    plt.ylim(top=1.1, bottom=0)
     # plt.legend()
     plt.show()
 
 
-    plt.figure(figsize=(7,7), dpi=100)  # グラフのサイズ
+    plt.figure(figsize=(8,8), dpi=100)  # グラフのサイズ
     plt.rcParams["font.size"] = 22  # グラフの文字サイズ
-    plt.plot(x, Q[:,1]/Q[:,0]/1e3, color='red', linewidth=1.5, label='Numerical')
+    plt.plot(x, Q0[:,1]/Q0[:,0], color='green', linewidth=1.5, label='Numerical')
+    plt.plot(x, Q[:,1]/Q[:,0], color='red', linewidth=1.5, label='Numerical')
+    plt.plot(x, Qext[:,1]/Qext[:,0], color='black', linewidth = 1.0, linestyle = 'dashed', label = 'Analitical')
     plt.grid(color='black', linestyle='dotted', linewidth=0.5)
     plt.xlabel('x')
     plt.ylabel('$u$ km/s')
+    # plt.ylim(top=1.5)
     # plt.legend()
     plt.show()
 
 
-    plt.figure(figsize=(7,7), dpi=100)  # グラフのサイズ
+    plt.figure(figsize=(8,8), dpi=100)  # グラフのサイズ
     plt.rcParams["font.size"] = 22  # グラフの文字サイズ
-    y = (gamma - 1.0) * (Q[:,2] - 0.5 * Q[:,1] ** 2 / Q[:,0]/1e5)
+    y0 = (gamma - 1.0) * (Q0[:,2] - 0.5 * Q0[:,1] ** 2 / Q0[:,0])  # / 1e5
+    y = (gamma - 1.0) * (Q[:,2] - 0.5 * Q[:,1] ** 2 / Q[:,0])  # / 1e5
+    yext = (gamma - 1.0) * (Qext[:,2] - 0.5 * Qext[:,1] ** 2 / Qext[:,0])
+    plt.plot(x, y0, color='green', linewidth=1.5,  label='Numerical')
     plt.plot(x, y, color='red', linewidth=1.5,  label='Numerical')
+    plt.plot(x, yext, color='black', linewidth = 1.0, linestyle = 'dashed',label = 'Analytical')
     plt.grid(color='black', linestyle='dotted', linewidth=0.5)
     plt.xlabel('x')
     plt.ylabel('$p$ atm')
+    plt.ylim(top=1.1, bottom=0)
     plt.legend()
     plt.show()
