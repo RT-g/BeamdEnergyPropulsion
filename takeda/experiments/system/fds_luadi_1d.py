@@ -346,9 +346,11 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
     """
     RHS = np.zeros([jmax, 3])
     E = np.zeros([jmax, 3])
+    dQ = np.zeros([jmax, 3])
 
     for n in range(nmax):
-        print(n+1)
+        if (n + 1) % round(nmax / 4) == 0:
+            print(round(n / nmax, 2) * 100, '%')
         Qn = Q.copy()  # QがQmになる
 
         # 内部反復(inner iteration)
@@ -360,32 +362,7 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
             Roe_flux(qL, qR, E)  # 保存変数に戻り、Eをアップデート
             RHS[1:] = E[1:] - E[:-1]
             dQ = np.zeros([jmax, 3])
-            dQold = np.zeros([jmax, 3])
-            # print(np.linalg.norm(RHS[1:-1, 0]), np.linalg.norm(RHS[1:-1, 1]), np.linalg.norm(RHS[1:-1, 2]))
 
-            ite = 0
-            """
-            while True:
-                ite += 1
-                dQold = dQ.copy()
-                # 第一スイープ
-                for j in range(1, jmax - 1):
-                    dQ[j] = (-(Q[j] - Qn[j]) - dtdx * RHS[j] + dtdx * Ap[j - 1] @ dQ[j - 1]) / (1 + dtdx * sigma_x[j])
-
-                # 第二, 三スイープ
-                for j in range(jmax - 2, 0, -1):
-                    dQ[j] = dQ[j] - (dtdx * Am[j + 1] @ dQ[j + 1]) / (1 + dtdx * sigma_x[j])
-
-                # 収束判定
-                if ite % 100 == 0:
-                    norm = np.zeros(3)
-                    for i in range(3):
-                        norm[i] = np.linalg.norm(dQ[1:-1, i] - dQold[1:-1, i], 1) / np.linalg.norm(RHS[1:-1, i], 1)
-                        # print(RHS[1:-1])
-                    if norm[0] < norm_limit and norm[1] < norm_limit and norm[2] < norm_limit:
-                        break
-            """
-            dQold = dQ.copy()
             # 第一スイープ
             for j in range(1, jmax - 1):
                 dQ[j] = (-(Q[j] - Qn[j]) - dtdx * RHS[j] + dtdx * Ap[j - 1] @ dQ[j - 1]) / (1 + dtdx * sigma_x[j])
@@ -397,15 +374,12 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
             # 収束判定
             norm = np.zeros(3)
             for i in range(3):
-                norm[i] = np.linalg.norm(dQ[1:-1, i] - dQold[1:-1, i], 1) / np.linalg.norm(RHS[1:-1, i], 1)
-                # print(RHS[1:-1])
+                norm[i] = np.linalg.norm(dQ[1:-1, i], 1) / np.linalg.norm(RHS[1:-1, i], 1)
             if norm[0] < norm_limit and norm[1] < norm_limit and norm[2] < norm_limit:
                 break
             Q += dQ
             Q[0] = Q[1]
             Q[-1] = Q[-2]
-            # print([round(i, 1) for i in Q[:, 1]])
-    print([round(i,3) for i in Q[:, 0]])
 
 
 # 陽解法
