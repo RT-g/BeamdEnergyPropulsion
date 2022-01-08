@@ -149,13 +149,13 @@ def Roe_flux(qL, qR, E):
     R[:, 2, 2] = HAVE + uAVE * cAVE
 
     Rinv[:, 0, 0] = 0.5 * (b1 + uAVE / cAVE)
-    Rinv[:, 0, 1] = -0.5 * (b2 * uAVE + cAVE)
+    Rinv[:, 0, 1] = -0.5 * (b2 * uAVE + 1 / cAVE)
     Rinv[:, 0, 2] = 0.5 * b2
     Rinv[:, 1, 0] = 1.0 - b1
     Rinv[:, 1, 1] = b2 * uAVE
     Rinv[:, 1, 2] = -b2
     Rinv[:, 2, 0] = 0.5 * (b1 - uAVE / cAVE)
-    Rinv[:, 2, 1] = -0.5 * (b2 * uAVE - cAVE)
+    Rinv[:, 2, 1] = -0.5 * (b2 * uAVE - 1 / cAVE)
     Rinv[:, 2, 2] = 0.5 * b2
 
     for j in range(jmax - 1):
