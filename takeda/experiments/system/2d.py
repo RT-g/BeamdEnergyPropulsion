@@ -1,6 +1,11 @@
 import numpy as np
+from numba import jit
+from time import time
+import os
 import matplotlib.pyplot as plt
 from limitter import minmod
+import warnings
+warnings.filterwarnings('ignore')
 
 
 jmax = 101
@@ -169,121 +174,15 @@ def Roe_flux(qLx, qRx, qLy, qRy, E, F):
     :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
     :param E: 更新するE_j+1/2
     """
-    for j in range(jmax - 1):
-        for k in range(kmax - 1):
-            # x方向
-            rhoL, uL, vL, pL = qLx[    j, k, 0], qLx[    j, k, 1], qLx[    j, k, 2], qLx[    j, k, 3]
-            rhoR, uR, vR, pR = qRx[j + 1, k, 0], qRx[j + 1, k, 1], qRx[j + 1, k, 2], qRx[j + 1, k, 3]
+    dQ, EL, ER, FL, FR, AQ, BQ = np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4]), np.zeros([jmax-1, kmax-1, 4])
+    Lambda, R, Rinv = np.zeros([jmax-1, kmax-1, 4, 4]), np.zeros([jmax-1, kmax-1, 4, 4]), np.zeros([jmax-1, kmax-1, 4, 4])
 
-            rhouL = rhoL * uL
-            rhouR = rhoR * uR
+    # x方向
+    rhoL, uL, vL, pL = qLx[:-1, :-1, 0], qLx[:-1, :-1, 1], qLx[:-1, :-1, 2], qLx[:-1, :-1, 3]
+    rhoR, uR, vR, pR = qRx[1:, :-1, 0], qRx[1:, :-1, 1], qRx[1:, :-1, 2], qRx[1:, :-1, 3]
 
-            eL = pL / (gamma - 1.0) + 0.5 * rhoL * (uL**2 + vL**2)
-            eR = pR / (gamma - 1.0) + 0.5 * rhoR * (uR**2 + vR**2)
-
-            HL = (eL + pL) / rhoL
-            HR = (eR + pR) / rhoR
-
-            # Roe平均 式(6.38)
-            sqrhoL = np.sqrt(rhoL)
-            sqrhoR = np.sqrt(rhoR)
-
-            uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
-            vAVE = (sqrhoL * vL + sqrhoR * vR) / (sqrhoL + sqrhoR)
-            qAVE = np.sqrt(uAVE**2 + vAVE**2)
-            HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
-            cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * (uAVE**2 + vAVE**2)))
-
-            dQ = np.array([rhoR - rhoL, rhoR * uR - rhoL * uL, rhoR * vR - rhoL * vL, eR - eL])
-
-            Lambda = np.diag([np.abs(uAVE - cAVE), np.abs(uAVE), np.abs(uAVE + cAVE), np.abs(uAVE)])
-
-            b1 = 0.5 * (gamma - 1.0) * qAVE ** 2 / cAVE ** 2
-            b2 = (gamma - 1.0) / cAVE ** 2
-
-            R = np.array([[1.0, 1.0, 1.0, 0.0],
-                          [uAVE - cAVE, uAVE, uAVE + cAVE, 0.0],
-                          [vAVE, vAVE, vAVE, 1.0],
-                          [HAVE - uAVE * cAVE, 0.5 * (uAVE**2 + vAVE**2), HAVE + uAVE * cAVE, vAVE]])
-
-            Rinv = np.array([[0.5 * (b1 + uAVE / cAVE), -0.5 * (b2 * uAVE + 1 / cAVE), -0.5 * b2 * vAVE, 0.5 * b2],
-                            [1.0 - b1, b2 * uAVE, b2 * vAVE, -b2],
-                            [0.5 * (b1 - uAVE / cAVE), -0.5 * (b2 * uAVE - 1 / cAVE), -0.5 * b2 * vAVE, 0.5 * b2],
-                            [-vAVE, 0.0, 1.0, 0.0]])
-
-            AQ = R @ Lambda @ Rinv @ dQ
-
-            EL = np.array([rhoL * uL, pL + rhouL * uL, rhoL * uL * vL, (eL + pL) * uL])
-            ER = np.array([rhoR * uR, pR + rhouR * uR, rhoR * uR * vR, (eR + pR) * uR])
-
-            E[j, k] = 0.5 * (ER + EL - AQ)  # 式(6.43)
-
-            # y方向
-            rhoL, uL, vL, pL = qLy[j,     k, 0], qLy[j,     k, 1], qLy[j,     k, 2], qLy[j,     k, 3]
-            rhoR, uR, vR, pR = qRy[j, k + 1, 0], qRy[j, k + 1, 1], qRy[j, k + 1, 2], qRy[j, k + 1, 3]
-
-            rhouL = rhoL * uL
-            rhouR = rhoR * uR
-
-            eL = pL / (gamma - 1.0) + 0.5 * rhoL * (uL**2 + vL**2)
-            eR = pR / (gamma - 1.0) + 0.5 * rhoR * (uR**2 + vR**2)
-
-            HL = (eL + pL) / rhoL
-            HR = (eR + pR) / rhoR
-
-            # Roe平均 式(6.38)
-            sqrhoL = np.sqrt(rhoL)
-            sqrhoR = np.sqrt(rhoR)
-
-            uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
-            vAVE = (sqrhoL * vL + sqrhoR * vR) / (sqrhoL + sqrhoR)
-            qAVE = np.sqrt(uAVE**2 + vAVE**2)
-            HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
-            cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * (uAVE**2 + vAVE**2)))
-
-            dQ = np.array([rhoR - rhoL, rhoR * uR - rhoL * uL, rhoR * vR - rhoL * vL, eR - eL])
-
-            Lambda = np.diag([np.abs(vAVE - cAVE), np.abs(vAVE), np.abs(vAVE + cAVE), np.abs(vAVE)])
-
-            b1 = 0.5 * (gamma - 1.0) * qAVE ** 2 / cAVE ** 2
-            b2 = (gamma - 1.0) / cAVE ** 2
-
-            R = np.array([[1.0, 1.0, 1.0, 0.0],
-                          [uAVE, uAVE, uAVE, 1.0],
-                          [vAVE - cAVE, vAVE, vAVE + cAVE, 0.0],
-                          [HAVE - vAVE * cAVE, 0.5 * (uAVE**2 + vAVE**2), HAVE + vAVE * cAVE, uAVE]])
-
-            Rinv = np.array([[0.5 * (b1 + vAVE / cAVE), -0.5 * b2 * uAVE, -0.5 * (b2 * vAVE + 1 / cAVE), 0.5 * b2],
-                             [1.0 - b1, b2 * uAVE, b2 * vAVE, -b2],
-                             [0.5 * (b1 - vAVE / cAVE), -0.5 * b2 * uAVE, -0.5 * (b2 * vAVE - 1 / cAVE), 0.5 * b2],
-                             [-uAVE, 1.0, 0.0, 0.0]])
-
-            BQ = R @ Lambda @ Rinv @ dQ
-            FL = np.array([rhoL * vL, rhoL * uL * vL, pL + rhoL * vL**2, (eL + pL) * vL])
-            FR = np.array([rhoR * vR, rhoR * uR * vR, pR + rhoR * vR**2, (eR + pR) * vR])
-
-            F[j, k] = 0.5 * (FR + FL - BQ)  # 式(6.43)
-
-
-def Roe_flux_fail(qL, qR, E):
-    """
-    なぜか失敗する
-    forループが少なく済んでいるのでこちらにしたいところ
-    van LeerのMUSTL型FDS法(高次精度)
-    Roe平均を用いて数値流束E_j+1/2を求める
-    :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
-    :param E: 更新するE_j+1/2
-    """
-    Lambda = np.zeros([jmax, 3, 3])
-    EL, ER = np.zeros([jmax, 3]), np.zeros([jmax, 3])
-    rhoL, uL, pL = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
-    rhoR, uR, pR = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
-
-    rhoL[:-1], uL[:-1], pL[:-1] = qL[:-1, 0], qL[:-1, 1], qL[:-1, 2]
-    rhoR[:-1], uR[:-1], pR[:-1] = qR[1:, 0], qR[1:, 1], qR[1:, 2]
-
-    eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL**2
-    eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR**2
+    eL = pL / (gamma - 1.0) + 0.5 * rhoL * (uL**2 + vL**2)
+    eR = pR / (gamma - 1.0) + 0.5 * rhoR * (uR**2 + vR**2)
 
     HL = (eL + pL) / rhoL
     HR = (eR + pR) / rhoR
@@ -293,37 +192,146 @@ def Roe_flux_fail(qL, qR, E):
     sqrhoR = np.sqrt(rhoR)
 
     uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
+    vAVE = (sqrhoL * vL + sqrhoR * vR) / (sqrhoL + sqrhoR)
+    qAVE = np.sqrt(uAVE**2 + vAVE**2)
     HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
-    cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * uAVE**2))
+    cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * (uAVE**2 + vAVE**2)))
 
-    dQAVE = qtoQ(qR) - qtoQ(qL)
+    b1 = 0.5 * (gamma - 1.0) * qAVE ** 2 / cAVE ** 2
+    b2 = (gamma - 1.0) / cAVE ** 2
 
-    Lambda[:, 0, 0] = np.abs(uAVE - cAVE)
-    Lambda[:, 1, 1] = np.abs(uAVE)
-    Lambda[:, 2, 2] = np.abs(uAVE + cAVE)
+    Lambda[:, :, 0, 0] = np.abs(uAVE - cAVE)
+    Lambda[:, :, 1, 1] = np.abs(uAVE)
+    Lambda[:, :, 2, 2] = np.abs(uAVE + cAVE)
+    Lambda[:, :, 3, 3] = np.abs(uAVE)
 
-    b1 = 0.5 * (gamma - 1.0) * uAVE**2 / cAVE**2
-    b2 = (gamma - 1.0) / cAVE**2
+    dQ[:, :, 0] = rhoR - rhoL
+    dQ[:, :, 1] = rhoR * uR - rhoL * uL
+    dQ[:, :, 2] = rhoR * vR - rhoL * vL
+    dQ[:, :, 3] = eR - eL
 
-    EL[:, 0] = rhoL * uL
-    EL[:, 1] = pL + rhoL * uL**2
-    EL[:, 2] = HL
-    ER[:, 0] = rhoR * uR
-    ER[:, 1] = pR + rhoR * uR**2
-    ER[:, 2] = HR
+    EL[:, :, 0] = rhoL * uL
+    EL[:, :, 1] = pL + rhoL * uL**2
+    EL[:, :, 2] = rhoL * uL * vL
+    EL[:, :, 3] = (eL + pL) * uL
+    ER[:, :, 0] = rhoR * uR
+    ER[:, :, 1] = pR + rhoR * uR**2
+    ER[:, :, 2] = rhoR * uR * vR
+    ER[:, :, 3] = (eR + pR) * uR
+
+    R[:, :, 0, 0] = 1.0
+    R[:, :, 0, 1] = 1.0
+    R[:, :, 0, 2] = 1.0
+    R[:, :, 1, 0] = uAVE - cAVE
+    R[:, :, 1, 1] = uAVE
+    R[:, :, 1, 2] = uAVE + cAVE
+    R[:, :, 2, 0] = vAVE
+    R[:, :, 2, 1] = vAVE
+    R[:, :, 2, 2] = vAVE
+    R[:, :, 2, 3] = 1.0
+    R[:, :, 3, 0] = HAVE - uAVE * cAVE
+    R[:, :, 3, 1] = 0.5 * qAVE**2
+    R[:, :, 3, 2] = HAVE + uAVE * cAVE
+    R[:, :, 3, 3] = vAVE
+
+    Rinv[:, :, 0, 0] = 0.5 * (b1 + uAVE / cAVE)
+    Rinv[:, :, 0, 1] = -0.5 * (b2 * uAVE + 1 / cAVE)
+    Rinv[:, :, 0, 2] = -0.5 * b2 * vAVE
+    Rinv[:, :, 0, 3] = 0.5 * b2
+    Rinv[:, :, 1, 0] = 1.0 - b1
+    Rinv[:, :, 1, 1] = b2 * uAVE
+    Rinv[:, :, 1, 2] = b2 * vAVE
+    Rinv[:, :, 1, 3] = -b2
+    Rinv[:, :, 2, 0] = 0.5 * (b1 - uAVE / cAVE)
+    Rinv[:, :, 2, 1] = -0.5 * (b2 * uAVE - 1 / cAVE)
+    Rinv[:, :, 2, 2] = -0.5 * b2 * vAVE
+    Rinv[:, :, 2, 3] = 0.5 * b2
+    Rinv[:, :, 3, 0] = -vAVE
+    Rinv[:, :, 3, 2] = 1.0
 
     for j in range(jmax - 1):
-        R = np.array([[                        1.0,              1.0,                         1.0],
-                      [          uAVE[j] - cAVE[j],          uAVE[j],           uAVE[j] + cAVE[j]],
-                      [HAVE[j] - uAVE[j] * cAVE[j], 0.5 * uAVE[j]**2, HAVE[j] + uAVE[j] * cAVE[j]]])
+        for k in range(kmax - 1):
+            AQ[j, k] = R[j, k] @ Lambda[j, k] @ Rinv[j, k] @ dQ[j, k]
 
-        Rinv = np.array([[0.5 * (b1[j] + uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] + 1 / cAVE[j]), 0.5 * b2[j]],
-                         [                      1.0 - b1[j],                        b2[j] * uAVE[j],      -b2[j]],
-                         [0.5 * (b1[j] - uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] - 1 / cAVE[j]), 0.5 * b2[j]]])
+    E[:-1, :-1] = 0.5 * (ER + EL - AQ)  # 式(6.43)
 
-        AdQ = R @ Lambda[j] @ Rinv @ dQAVE[j]
+    # y方向
+    rhoL, uL, vL, pL = qLy[-1, :-1, 0], qLy[-1, :-1, 1], qLy[-1, :-1, 2], qLy[-1, :-1, 3]
+    rhoR, uR, vR, pR = qRy[:-1, 1:, 0], qRy[:-1, 1:, 1], qRy[:-1, 1:, 2], qRy[:-1, 1:, 3]
 
-        E[j] = 0.5 * (ER[j] + EL[j] - AdQ)  # 式(6.43)
+    eL = pL / (gamma - 1.0) + 0.5 * rhoL * (uL**2 + vL**2)
+    eR = pR / (gamma - 1.0) + 0.5 * rhoR * (uR**2 + vR**2)
+
+    HL = (eL + pL) / rhoL
+    HR = (eR + pR) / rhoR
+
+    # Roe平均 式(6.38)
+    sqrhoL = np.sqrt(rhoL)
+    sqrhoR = np.sqrt(rhoR)
+
+    uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
+    vAVE = (sqrhoL * vL + sqrhoR * vR) / (sqrhoL + sqrhoR)
+    qAVE = np.sqrt(uAVE**2 + vAVE**2)
+    HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
+    cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * (uAVE**2 + vAVE**2)))
+
+    b1 = 0.5 * (gamma - 1.0) * qAVE ** 2 / cAVE ** 2
+    b2 = (gamma - 1.0) / cAVE ** 2
+
+    Lambda[:, :, 0, 0] = np.abs(vAVE - cAVE)
+    Lambda[:, :, 1, 1] = np.abs(vAVE)
+    Lambda[:, :, 2, 2] = np.abs(vAVE + cAVE)
+    Lambda[:, :, 3, 3] = np.abs(vAVE)
+
+    dQ[:, :, 0] = rhoR - rhoL
+    dQ[:, :, 1] = rhoR * uR - rhoL * uL
+    dQ[:, :, 2] = rhoR * vR - rhoL * vL
+    dQ[:, :, 3] = eR - eL
+
+    FL[:, :, 0] = rhoL * vL
+    FL[:, :, 1] = rhoL * uL * vL
+    FL[:, :, 2] = pL + rhoL * vL**2
+    FL[:, :, 3] = (eL + pL) * vL
+    FR[:, :, 0] = rhoR * vR
+    FR[:, :, 1] = rhoR * uR * vR
+    FR[:, :, 2] = pR + rhoR * vR**2
+    FR[:, :, 3] = (eR + pR) * vR
+
+    R[:, :, 0, 0] = 1.0
+    R[:, :, 0, 1] = 1.0
+    R[:, :, 0, 2] = 1.0
+    R[:, :, 1, 0] = uAVE
+    R[:, :, 1, 1] = uAVE
+    R[:, :, 1, 2] = uAVE
+    R[:, :, 1, 3] = 1.0
+    R[:, :, 2, 0] = vAVE - cAVE
+    R[:, :, 2, 1] = vAVE
+    R[:, :, 2, 2] = vAVE + cAVE
+    R[:, :, 3, 0] = HAVE - vAVE * cAVE
+    R[:, :, 3, 1] = 0.5 * qAVE**2
+    R[:, :, 3, 2] = HAVE + vAVE * cAVE
+    R[:, :, 3, 3] = uAVE
+
+    Rinv[:, :, 0, 0] = 0.5 * (b1 + vAVE / cAVE)
+    Rinv[:, :, 0, 1] = -0.5 * b2 * uAVE
+    Rinv[:, :, 0, 2] = -0.5 * (b2 * vAVE + 1 / cAVE)
+    Rinv[:, :, 0, 3] = 0.5 * b2
+    Rinv[:, :, 1, 0] = 1.0 - b1
+    Rinv[:, :, 1, 1] = b2 * uAVE
+    Rinv[:, :, 1, 2] = b2 * vAVE
+    Rinv[:, :, 1, 3] = -b2
+    Rinv[:, :, 2, 0] = 0.5 * (b1 - vAVE / cAVE)
+    Rinv[:, :, 2, 1] = -0.5 * b2 * uAVE
+    Rinv[:, :, 2, 2] = -0.5 * (b2 * vAVE - 1 / cAVE)
+    Rinv[:, :, 2, 3] = 0.5 * b2
+    Rinv[:, :, 3, 0] = -uAVE
+    Rinv[:, :, 3, 1] = 1.0
+
+    for j in range(jmax - 1):
+        for k in range(kmax - 1):
+            BQ[j, k] = R[j, k] @ Lambda[j, k] @ Rinv[j, k] @ dQ[j, k]
+
+    F[:-1, :-1] = 0.5 * (FR + FL - BQ)  # 式(6.43)
 
 
 # 陽解法
@@ -436,6 +444,7 @@ def calc_jacobian_matrix(Q):
 
 
 # 陰解法
+@jit(cache=True)
 def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iimax: int = 10):
     """
     陰解法では、かなりの近似を導入しているため、時間精度を高めるためには工夫が必要。
@@ -454,8 +463,8 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
     dQ = np.zeros([jmax, kmax, 4])
 
     for n in range(nmax):
-        if (n + 1) % round(nmax / 4) == 0:
-            print(round(n / nmax, 2) * 100, '%')
+        if (n + 1) % round(nmax / 1) == 0:
+            print(round((n + 1) / nmax, 2) * 100, '%')
         Qn = Q.copy()  # QがQmになる
 
         # 内部反復(inner iteration)
@@ -468,6 +477,7 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
             RHS[1:, 1:] = dtdx * (E[1:, 1:] - E[:-1, 1:]) + dtdy * (F[1:, 1:] - F[1:, :-1])
             dQ = np.zeros([jmax, kmax, 4])
 
+            # スイープスタート(順次dQをアップデートするためスライスが使えない)
             # 第一スイープ
             for j in range(1, jmax - 1):
                 for k in range(1, kmax - 1):
@@ -674,9 +684,9 @@ def output_graphs(Q0, rho, u, v, p):
 
 
 if __name__ == '__main__':
-    update_data = False  # True
+    update_data = True  # True
 
-    nmax = 100
+    nmax = 1
     print_interval = 4
 
     order = 2
@@ -684,13 +694,16 @@ if __name__ == '__main__':
     Q0 = init()
     # Qext = strict_answer()
     if update_data is True:
+        start = time()
         Q = Q0.copy()
         implicit_solution(Q, order, kappa, nmax, iimax=50)
+        print(time() - start)
         # Roe_FDS(Q, order, kappa, nmax)
         rho = Q[:, :, 0]
         u = Q[:, :, 1]/Q[:, :, 0]
         v = Q[:, :, 2]/Q[:, :, 0]
         p = (gamma - 1.0) * (Q[:, :, 3] - 0.5 * (Q[:, :, 1]**2 + Q[:, :, 2]**2) / Q[:, :, 0])  # / 1e5
+        os.makedirs('csv', exist_ok=True)
         np.savetxt('csv/rho.csv', Q[:, :, 0], fmt='%.2e')
         np.savetxt('csv/u.csv', u, fmt='%.2e')
         np.savetxt('csv/v.csv', v, fmt='%.2e')
