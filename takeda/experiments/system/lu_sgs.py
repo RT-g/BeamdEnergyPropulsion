@@ -156,8 +156,8 @@ def inner_ite(lQc):
     """
     global RHS
 
-    delta_Q = np.array([[0.0] * 3 for i in [1] * nx])
-    delta_Q_temp = np.array([[0.0] * 3 for i in [1] * nx])
+    delta_Q = np.zeros([nx, 3])
+    delta_Q_temp = np.zeros([nx, 3])
 
     Qcn = np.array(copy.deepcopy(lQc))
     Qcm = np.array(copy.deepcopy(lQc))
@@ -167,61 +167,59 @@ def inner_ite(lQc):
 
         qfm=Qctoqf(Qcm)
 
-        cal_RHS(Qcm)
+        cal_RHS(Qcm)  # Eの差分を算出
 
         cal_for_lusgs(Qcm,qfm)
 
+        delta_Q = np.zeros([nx, 3])
+        delta_Q_temp = np.zeros([nx, 3])
 
-        delta_Q = np.array([[0.0] * 3 for i in [1] * nx])
-        delta_Q2 = np.array([[0.0] * 3 for i in [1] * nx])
-        delta_Q_temp = np.array([[0.0] * 3 for i in [1] * nx])
+        lo_R = np.array(RHS)  # E_j+1/2 - E_j-1/2のarray
 
-        lo_R=np.array(RHS)
-
-        sum_b=np.array([0.0] * 3)
-        for i in range(lbound,nx-lbound):
-                sum_b += abs(lo_R[i])
-
-        ite=0
-        con=0
+        sum_b = np.zeros(3)
+        for i in range(lbound, nx - lbound):
+            sum_b += abs(lo_R[i])  # E_j+1/2- E_j-1/2の絶対値の総和, 3*1
+        print(sum_b)
+        ite = 0
+        con = 0  # 計算を続行するか否か
         # lusgs loop
-        while con==0:
+        while con == 0:
             delta_Q_temp = copy.deepcopy(delta_Q)
 
-            L = np.array([[0.0] * 3 for i in [1] * nx])
-            D = np.array([0.0]*nx)
-            U = np.array([[0.0] * 3 for i in [1] * nx])
+            L = np.zeros([nx, 3])
+            D = np.zeros(nx)
+            U = np.zeros([nx, 3])
             for i in range(nx):
-                L[i] = dt*(np.dot(Amatrix_plus[i],delta_Q[i]))/2
-                D[i] = dx+dx+dt*(beta_sigma[i])
-                U[i] = dt*(np.dot(Amatrix_minus[i],delta_Q[i]))/2
+                L[i] = dt * (Amatrix_plus[i] @ delta_Q[i]) / 2
+                D[i] = dx + dx + dt * beta_sigma[i]
+                U[i] = dt * (Amatrix_minus[i] @ delta_Q[i]) / 2
 
 
-            RHS = np.array([[0.0] * 3 for i in [1] * nx])
+            RHS = np.zeros([nx, 3])
             # RHS
             for i in range(lbound,nx-lbound):
-                RHS[i] = -(Qcm[i]-Qcn[i])*dx-dt*lo_R[i]
+                RHS[i] = -(Qcm[i] - Qcn[i]) * dx - dt * lo_R[i]
 
-            # (D+L)Q=Q
+            # (D+L)Q=Q sweep1
             for i in range(lbound,nx-lbound):
-                delta_Q[i] = (L[i-1]+RHS[i]) / D[i]
+                delta_Q[i] = (L[i-1] + RHS[i]) / D[i]
 
-            # (D+U)Q=DQ
-            for i in range(lbound,nx-lbound):
+            # (D+U)Q=DQ sweep2,3
+            for i in range(nx-lbound-1, 0, -1):
                 delta_Q[i] = delta_Q[i] - U[i+1]/ D[i]
 
             # 収束判定
-            if (ite+1) % 100 ==0:
-                sum_b_Ax=np.array([0.0] * 3)
+            if (ite + 1) % 100 == 0:
+                sum_b_Ax = np.zeros(3)
 
                 for i in range(lbound,nx-lbound):
                     for j in range(3):
                         sum_b_Ax += abs(delta_Q[i]-delta_Q_temp[i])
 
-                norm2d=[0.0] * 3
+                norm2d = [0.0] * 3
 
                 for i in range(3):
-                    norm2d[i]=sum_b_Ax[i]/sum_b[i]
+                    norm2d[i]=sum_b_Ax[i]/sum_b[i]  # (delta_Q-delta_Q_temp)/(E_j+1/2- E_j-1/2)
 
                 if norm2d[0] < norm_ok and norm2d[1] < norm_ok and norm2d[2] < norm_ok:
                     con=1
@@ -232,7 +230,7 @@ def inner_ite(lQc):
 
         for i in range(lbound,nx-lbound):
             for j in range(3):
-                Qcm[i][j]=Qcm[i][j]+delta_Q[i][j]
+                Qcm[i][j] += delta_Q[i][j]
 
         Qcm=bound(Qcm)
 
@@ -274,11 +272,11 @@ def cal_RHS(lQc):  # 境界フラックスの計算
     """
     global RHS
 
-    RHS = np.array([[0.0] * 3 for i in [1] * nx])
+    RHS = np.zeros([nx, 3])
     fvs(lQc)                             # FVS法によるフラックスの作成
 
     for i in range(1, nx-1):
-        RHS[i] = Fplus[i]-Fplus[i-1]
+        RHS[i] = Fplus[i] - Fplus[i-1]
 
     RHS.tolist()
 
@@ -293,7 +291,7 @@ def fvs(lQc):
     """
     global Fplus
 
-    Fplus = [[0.0] * 3 for i in [1] * (nx+1)]
+    Fplus = np.zeros([nx+1,3])
     muscl(lQc)
 
     for i in range(0, nx-1):
@@ -321,8 +319,9 @@ def A_pm(lQc,lqf):
     b_para = (gamma-1)/c**2
     a_para = 0.5*b_para*u**2
 
-    R = np.array([[1.0, 1.0, 1.0, ], [u-c, u, u+c],
-                     [H-u*c, 0.5*u**2, H+u*c]])
+    R = np.array([[1.0, 1.0, 1.0],
+                  [u-c, u, u+c],
+                  [H-u*c, 0.5*u**2, H+u*c]])
     R_inv = np.array([[0.5*(a_para+u/c), 0.5*(-b_para*u-1/c), 0.5*b_para], [
                         1-a_para, b_para*u, -b_para], [0.5*(a_para-u/c), 0.5*(-b_para*u+1/c), 0.5*b_para]])
     Gam = np.array([[(u-c), 0.0, 0.0], [0.0, u, 0.0], [0.0, 0.0, (u+c)]])
