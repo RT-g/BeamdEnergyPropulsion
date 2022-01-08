@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+from time import time
 
 jmax = 101
 dt = 0.002
@@ -85,15 +85,15 @@ def qtoQ(q):
     :param q: 基本量ベクトル
     :return Q: 保存量ベクトル
     """
-    Q = np.zeros([jmax, 3])
+    Qc = q.copy()
     rho, u, p = q[:, 0], q[:, 1], q[:, 2]
     e = p / (gamma - 1.0) + 0.5 * rho * u**2
 
-    Q[:, 0] = rho
-    Q[:, 1] = rho * u
-    Q[:, 2] = e
+    Qc[:, 0] = rho
+    Qc[:, 1] = rho * u
+    Qc[:, 2] = e
 
-    return Q
+    return Qc
 
 
 def Roe_flux(qL, qR, E):
@@ -103,66 +103,11 @@ def Roe_flux(qL, qR, E):
     :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
     :param E: 更新するE_j+1/2
     """
-    for j in range(jmax - 1):
-        rhoL, uL, pL = qL[    j, 0], qL[    j, 1], qL[    j, 2]
-        rhoR, uR, pR = qR[j + 1, 0], qR[j + 1, 1], qR[j + 1, 2]
+    dQ, EL, ER, AQ = np.zeros([jmax-1, 3]), np.zeros([jmax-1, 3]), np.zeros([jmax-1, 3]), np.zeros([jmax-1, 3])
+    Lambda, R, Rinv = np.zeros([jmax-1, 3, 3]), np.ones([jmax-1, 3, 3]), np.zeros([jmax-1, 3, 3])
 
-        rhouL = rhoL * uL
-        rhouR = rhoR * uR
-
-        eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL ** 2
-        eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR ** 2
-
-        HL = (eL + pL) / rhoL
-        HR = (eR + pR) / rhoR
-
-        # Roe平均 式(6.38)
-        sqrhoL = np.sqrt(rhoL)
-        sqrhoR = np.sqrt(rhoR)
-
-        uAVE = (sqrhoL * uL + sqrhoR * uR) / (sqrhoL + sqrhoR)
-        HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
-        cAVE = np.sqrt((gamma - 1.0)* (HAVE - 0.5 * uAVE ** 2))
-
-        dQ = np.array([rhoR - rhoL, rhoR * uR - rhoL * uL, eR - eL])
-
-        Lambda = np.diag([np.abs(uAVE - cAVE), np.abs(uAVE), np.abs(uAVE + cAVE)])
-
-        b1 = 0.5 * (gamma - 1.0) * uAVE ** 2 / cAVE ** 2
-        b2 = (gamma - 1.0) / cAVE ** 2
-
-        R = np.array([[               1.0,              1.0,                1.0],
-                      [       uAVE - cAVE,             uAVE,        uAVE + cAVE],
-                      [HAVE - uAVE * cAVE, 0.5 * uAVE ** 2, HAVE + uAVE * cAVE]])
-
-        Rinv = np.array([[0.5 * (b1 + uAVE / cAVE), -0.5 * (b2 * uAVE + cAVE), 0.5 * b2],
-                         [                1.0 - b1,                 b2 * uAVE,      -b2],
-                         [0.5 * (b1 - uAVE / cAVE), -0.5 * (b2 * uAVE - cAVE), 0.5 * b2]])
-
-        AQ = R @ Lambda @ Rinv @ dQ
-
-        EL = np.array([rhoL * uL, pL + rhouL * uL, (eL + pL) * uL])
-        ER = np.array([rhoR * uR, pR + rhouR * uR, (eR + pR) * uR])
-
-        E[j] = 0.5 * (ER + EL - AQ)  # 式(6.43)
-
-
-def Roe_flux_fail(qL, qR, E):
-    """
-    なぜか失敗する
-    forループが少なく済んでいるのでこちらにしたいところ
-    van LeerのMUSTL型FDS法(高次精度)
-    Roe平均を用いて数値流束E_j+1/2を求める
-    :param qL, qR: 内挿する基本変数、qLはj_+1/2, qRはj-1/2
-    :param E: 更新するE_j+1/2
-    """
-    Lambda = np.zeros([jmax, 3, 3])
-    EL, ER = np.zeros([jmax, 3]), np.zeros([jmax, 3])
-    rhoL, uL, pL = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
-    rhoR, uR, pR = np.zeros(jmax), np.zeros(jmax), np.zeros(jmax)
-
-    rhoL[:-1], uL[:-1], pL[:-1] = qL[:-1, 0], qL[:-1, 1], qL[:-1, 2]
-    rhoR[:-1], uR[:-1], pR[:-1] = qR[1:, 0], qR[1:, 1], qR[1:, 2]
+    rhoL, uL, pL = qL[:-1, 0], qL[:-1, 1], qL[:-1, 2]
+    rhoR, uR, pR = qR[1:, 0], qR[1:, 1], qR[1:, 2]
 
     eL = pL / (gamma - 1.0) + 0.5 * rhoL * uL**2
     eR = pR / (gamma - 1.0) + 0.5 * rhoR * uR**2
@@ -178,34 +123,45 @@ def Roe_flux_fail(qL, qR, E):
     HAVE = (sqrhoL * HL + sqrhoR * HR) / (sqrhoL + sqrhoR)
     cAVE = np.sqrt((gamma - 1.0) * (HAVE - 0.5 * uAVE**2))
 
-    dQAVE = qtoQ(qR) - qtoQ(qL)
+    b1 = 0.5 * (gamma - 1.0) * uAVE**2 / cAVE**2
+    b2 = (gamma - 1.0) / cAVE**2
 
     Lambda[:, 0, 0] = np.abs(uAVE - cAVE)
     Lambda[:, 1, 1] = np.abs(uAVE)
     Lambda[:, 2, 2] = np.abs(uAVE + cAVE)
 
-    b1 = 0.5 * (gamma - 1.0) * uAVE**2 / cAVE**2
-    b2 = (gamma - 1.0) / cAVE**2
+    dQ[:, 0] = rhoR - rhoL
+    dQ[:, 1] = rhoR * uR - rhoL * uL
+    dQ[:, 2] = eR - eL
 
     EL[:, 0] = rhoL * uL
     EL[:, 1] = pL + rhoL * uL**2
-    EL[:, 2] = HL
+    EL[:, 2] = (eL + pL) * uL
     ER[:, 0] = rhoR * uR
     ER[:, 1] = pR + rhoR * uR**2
-    ER[:, 2] = HR
+    ER[:, 2] = (eR + pR) * uR
+
+    R[:, 1, 0] = uAVE - cAVE
+    R[:, 1, 1] = uAVE
+    R[:, 1, 2] = uAVE + cAVE
+    R[:, 2, 0] = HAVE - uAVE * cAVE
+    R[:, 2, 1] = 0.5 * uAVE**2
+    R[:, 2, 2] = HAVE + uAVE * cAVE
+
+    Rinv[:, 0, 0] = 0.5 * (b1 + uAVE / cAVE)
+    Rinv[:, 0, 1] = -0.5 * (b2 * uAVE + cAVE)
+    Rinv[:, 0, 2] = 0.5 * b2
+    Rinv[:, 1, 0] = 1.0 - b1
+    Rinv[:, 1, 1] = b2 * uAVE
+    Rinv[:, 1, 2] = -b2
+    Rinv[:, 2, 0] = 0.5 * (b1 - uAVE / cAVE)
+    Rinv[:, 2, 1] = -0.5 * (b2 * uAVE - cAVE)
+    Rinv[:, 2, 2] = 0.5 * b2
 
     for j in range(jmax - 1):
-        R = np.array([[                        1.0,              1.0,                         1.0],
-                      [          uAVE[j] - cAVE[j],          uAVE[j],           uAVE[j] + cAVE[j]],
-                      [HAVE[j] - uAVE[j] * cAVE[j], 0.5 * uAVE[j]**2, HAVE[j] + uAVE[j] * cAVE[j]]])
+        AQ[j] = R[j] @ Lambda[j] @ Rinv[j] @ dQ[j]
 
-        Rinv = np.array([[0.5 * (b1[j] + uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] + 1 / cAVE[j]), 0.5 * b2[j]],
-                         [                      1.0 - b1[j],                        b2[j] * uAVE[j],      -b2[j]],
-                         [0.5 * (b1[j] - uAVE[j] / cAVE[j]), -0.5 * (b2[j] * uAVE[j] - 1 / cAVE[j]), 0.5 * b2[j]]])
-
-        AdQ = R @ Lambda[j] @ Rinv @ dQAVE[j]
-
-        E[j] = 0.5 * (ER[j] + EL[j] - AdQ)  # 式(6.43)
+    E[:-1] = 0.5 * (ER + EL - AQ)  # 式(6.43)
 
 
 def minmod(x, y):
@@ -512,7 +468,8 @@ def strict_answer():
 
 
 if __name__ == '__main__':
-    nmax = 100
+    start = time()
+    nmax = 10
     print_interval = 4
 
     order = 2
@@ -520,6 +477,7 @@ if __name__ == '__main__':
     Q0 = init()
     Q = Q0.copy()
     implicit_solution(Q, order, kappa, nmax, iimax=50)
+    print(time()-start)
     # Roe_FDS(Q, order, kappa, nmax)
 
     Qext = strict_answer()
@@ -527,7 +485,7 @@ if __name__ == '__main__':
     # ### 結果の可視化
     plt.figure(figsize=(8,8), dpi=100)  # グラフのサイズ
     plt.rcParams["font.size"] = 22  # グラフの文字サイズ
-    plt.plot(x, Q0[:,0], color='green', linewidth=1.5, label='Numerical')
+    # plt.plot(x, Q0[:,0], color='green', linewidth=1.5, label='Numerical')
     plt.plot(x, Q[:,0], color='red', linewidth=1.5, label='Numerical')
     plt.plot(x, Qext[:,0], color='black', linewidth = 1.0, linestyle = 'dashed', label = 'Analytical')
     plt.grid(color='black', linestyle='dotted', linewidth=0.5)
