@@ -11,5 +11,20 @@ def minmod(x, y):
     return sgn * np.maximum(np.minimum(np.abs(x), sgn * y), 0.0)
 
 
-def superbee():
-    pass
+def superbee(x, y):
+    sgn = np.sign(x)
+    return sgn * np.maximum(np.minimum(2 * np.abs(x), sgn * y), np.minimum(np.abs(x), 2 * sgn * y), 0.0)
+
+def van_leer(x, y):
+    sgn = np.sign(x)
+    return sgn * np.maximum(np.minimum(2 * np.abs(x), sgn * y), np.minimum(np.abs(x), 2 * sgn * y), 0.0)
+
+
+def van_albada(x, y):
+    sgn = np.sign(x)
+    return sgn * np.maximum(np.minimum(2 * np.abs(x), sgn * y), np.minimum(np.abs(x), 2 * sgn * y), 0.0)
+
+
+def umist(x, y):
+    sgn = np.sign(x)
+    return sgn * np.maximum(np.minimum(2 * np.abs(x), sgn * y), np.minimum(np.abs(x), 2 * sgn * y), 0.0)
