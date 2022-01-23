@@ -1,9 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from time import time
+import os
+from PIL import Image
 
-
-dt = 1e-7
+dt = 1e-9  # implicitなら1e-7, explicitなら1e-9くらい
+nmax = 2000
 
 gamma = 1.4
 
@@ -17,15 +19,6 @@ T_0 = 293
 rho_0 = p_0 / R / T_0
 u_0 = 0
 v_0 = 0
-
-PI = 1  # .013e5
-RHOI = 1  # PI / R / T_0
-UI = 0.0
-
-PE = 0.1  # .013e4
-RHOE = 0.1  # PE / R / T_0
-UE = 0.0
-
 
 jmax = 2000
 dx = 0.01e-3
@@ -57,57 +50,45 @@ W_T0 = 2.0
 R_peak = 2.13
 ss = 347  # 音速
 l = 0.2e-3  # m 加熱長さ レーザーは0.2 mm
-eta = 0.1
+eta = 0.05
 
 
 # ### Roeスキームによる計算
 
 
-def init(shocktube=False):
+def init():
     """
     Q の初期条件を決定
     :return Q:
     """
     Q = np.zeros([jmax, 3])
-    if shocktube:
-        Q[x <= xmid, 0] = RHOI
-        Q[x <= xmid, 1] = RHOI * UI
-        Q[x <= xmid, 2] = (PI / (gamma - 1.0) + 0.5 * RHOI * UI ** 2)
-
-        Q[x > xmid, 0] = RHOE
-        Q[x > xmid, 1] = RHOE * UE
-        Q[x > xmid, 2] = (PE / (gamma - 1.0) + 0.5 * RHOE * UE ** 2)
-    else:
-        Q[:, 0] = rho_0
-        Q[:, 1] = 0
-        Q[:, 2] = p_0 / (gamma - 1.0)
+    Q[:, 0] = rho_0
+    Q[:, 1] = 0
+    Q[:, 2] = p_0 / (gamma - 1.0)
     return Q
 
 
 def laser_intensity(nmax):
+    response = {}
     x_laser = np.zeros(nmax)
-    u_laser = np.zeros(nmax)
     t = np.arange(0, dt * nmax, dt)
-    Power_laser = 8.15 * np.exp(-0.866 * t * 1e6)
+    # Power_laser = 8.15 * np.exp(-0.866 * t * 1e6)
+    Power_laser = 6.092231655 * np.exp(-0.7663806156 * t * 1e6)  # 菅村
 
     W_G = W_G0 * 1e-3
     W_T = W_T0 * 1e-3
-    S_laser0 = R_peak * Power_laser / 4 / W_G / W_T * 1e-3  # 波頭のレーザー強度
+    S_laser = R_peak * Power_laser / 4 / W_G / W_T * 1e-3  # 波頭のレーザー強度
+    u_ionz = np.where((S_laser * 1e9 / rho_0 / ss**3)**(intercept - intercept_low) * slope / slope_low >= 1,
+                      slope * (S_laser * 1e9 / rho_0 / ss**3) ** intercept * ss,
+                      slope_low * (S_laser * 1e9 / rho_0 / ss**3) ** intercept_low * ss)
 
-    for j in range(1, nmax):
-        u_ionz_line1 = slope * (S_laser0[j] * 1e9 / rho_0 / ss**3) ** intercept * ss  # m/s 波頭の速度
-        u_ionz_line3 = slope_low * (S_laser0[j] * 1e9 / rho_0 / ss**3) ** intercept_low * ss
-        if (u_ionz_line1 > u_ionz_line3):
-            u_ionz = u_ionz_line1  # Line1, 松井さん博論
-            b = intercept
-        else:
-            u_ionz = u_ionz_line3  # Line3, 松井さん博論
-            b = intercept_low
-        u_laser[j] = u_ionz
-        x_laser[j] = x_laser[j - 1] + u_ionz * dt  # m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
-    S_laser = R_peak * Power_laser / 4 / W_G / W_T * 1e-3  # 局所レーザー強度, GW/m2
+    for n in range(1, nmax):
+        x_laser[n] = x_laser[n - 1] + u_ionz[n] * dt  # m 電離波面の波頭進展位置=Laserによって加熱される最初の位置
     # print(S_laser, x_laser, sep='\n')
-    return S_laser, x_laser, u_laser
+    response['S_laser'] = S_laser
+    response['x_laser'] = x_laser
+    response['u_ionz'] = u_ionz
+    return response
 
 
 def calc_CFL(Q):
@@ -279,31 +260,51 @@ def MUSCL(Q, order: int = 2, kappa: float = 0, limit=minmod):
 
 
 # 陽解法
-def Roe_FDS(Q, order, kappa, nmax, print_interval=2):
+def explicit_runge(Q, order, kappa, nmax, print_interval=8):
     """
     二段階ルンゲクッタ
     """
     E = np.zeros([jmax, 3])
+    RHS = np.zeros([jmax, 3])
+    Plateau = np.zeros(nmax)
+    response = laser_intensity(nmax)
+    S_laser = response['S_laser']
+    x_laser = response['x_laser']
 
     for n in range(nmax):
         if n % print_interval == 0:
+            # CFLが1を超えてはいけない
             print(f'n = {n : 4d} : CFL = {calc_CFL(Q) : .4f}')
 
-        Qold = Q.copy()
+        S = np.zeros([jmax, 3])
+        S[(x > x_laser[n] - l) & (x <= x_laser[n]), 2] = eta * S_laser[n] / l * 1e9
+
+        Qn = Q.copy()
 
         coefs = [0.5, 1.0]
         for coef in coefs:
-            QL, QR = MUSCL(Qold, order, kappa)
+            QL, QR = MUSCL(Q, order, kappa)
 
             Roe_flux(QL, QR, E)
-            for j in range(1, jmax - 1):
-                Qold[j] = Q[j] - coef * dtdx * (E[j] - E[j-1])
+            RHS[1:] = dtdx * (E[1:] - E[:-1]) - dt * S[1:]
+            Q[1:] = Qn[1:] - coef * RHS[1:]
 
-            Qold[0] = Q[0]
-            Qold[-1] = Q[-1]
+            boundary_condition(Q)
+        rho = Q[:, 0]
+        u = Q[:, 1] / Q[:, 0]
+        e = Q[:, 2]
+        p = (gamma - 1.0) * (e - 0.5 * rho * u**2)  # / 1e5
+        Plateau[n] = p[0]
+        T = p / rho / R
 
-        Q[:] = Qold[:]
+        np.savetxt(f'1D/rho/{n}.csv', rho, fmt='%.2e')
+        np.savetxt(f'1D/u/{n}.csv', u, fmt='%.2e')
+        np.savetxt(f'1D/p/{n}.csv', p, fmt='%.2e')
+        np.savetxt(f'1D/e/{n}.csv', e, fmt='%.2e')
 
+        output_graphs(rho, u, p, n, T=T)
+    response['Plateau'] = Plateau
+    return response
 
 def calc_A(Q):
     """
@@ -346,6 +347,19 @@ def calc_A(Q):
     return Ap, Am, sigma_x
 
 
+def boundary_condition(Q):
+    """
+    境界条件を反映する
+    :param Q:
+    """
+    # アルミ板
+    Q[0] = Q[1]
+    Q[0, 1] = 0
+
+    # 光軸方向流出
+    Q[-1] = Q[-2]
+
+
 # 陰解法
 def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iimax: int = 10):
     """
@@ -361,20 +375,20 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
     """
     RHS = np.zeros([jmax, 3])
     E = np.zeros([jmax, 3])
+    Plateau = np.zeros(nmax)
     response = {}
 
     dQ = np.zeros([jmax, 3])
-    S_laser, x_laser, u_laser = laser_intensity(nmax)
-    response['S_laser'] = S_laser
-    response['x_laser'] = x_laser
-    response['u_laser'] = u_laser
+    response = laser_intensity(nmax)
+    S_laser = response['S_laser']
+    x_laser = response['x_laser']
 
     for n in range(nmax):
         if (n + 1) % round(nmax / 4) == 0:
             print(round(n / nmax, 2) * 100, '%')
         Qn = Q.copy()  # QがQmになる
         S = np.zeros([jmax, 3])
-        S[(x > x_laser[n] - l) & (x <= x_laser[n]), 2] = eta * S_laser[n] / l * 1e9
+        S[(x > x_laser[n] - l) & (x < x_laser[n]), 2] = eta * S_laser[n] / l * 1e9
         # print(S)
 
         # 内部反復(inner iteration)
@@ -403,43 +417,75 @@ def implicit_solution(Q, order, kappa, nmax: int, norm_limit: float = 1e-6, iima
             if norm[0] < norm_limit and norm[1] < norm_limit and norm[2] < norm_limit:
                 break
             Q += dQ
-            Q[0] = Q[1]
-            Q[-1] = Q[-2]
+            boundary_condition(Q)
+        rho = Q[:, 0]
+        u = Q[:, 1] / Q[:, 0]
+        e = Q[:, 2]
+        p = (gamma - 1.0) * (e - 0.5 * rho * u**2)  # / 1e5
+        T = p / rho / R
+        Plateau[n] = p[0]
 
+        np.savetxt(f'1D/rho/{n}.csv', rho, fmt='%.2e')
+        np.savetxt(f'1D/u/{n}.csv', u, fmt='%.2e')
+        np.savetxt(f'1D/p/{n}.csv', p, fmt='%.2e')
+        np.savetxt(f'1D/e/{n}.csv', e, fmt='%.2e')
+
+        output_graphs(rho, u, p, n, T=T)
+    response['Plateau'] = Plateau
     return response
 
 
 # 陽解法
-def MacCormack(Q, eps_c, nmax, interval=5):
+def explicit_maccormack(Q, nmax, eps_c: float = 0.1, interval=8):
+    """
+    TVD法ではないので古い。非推奨
+    """
     E = np.zeros([jmax, 3])
+    response = laser_intensity(nmax)
+    S_laser = response['S_laser']
+    x_laser = response['x_laser']
 
     for n in range(nmax):
         if n % interval == 0:
             print(f'n = {n : 4d} : CFL = {calc_CFL(Q) : .4f}')
 
-        Qs = Q.copy()
+        S = np.zeros([jmax, 3])
+        S[(x > x_laser[n] - l) & (x <= x_laser[n]), 2] = eta * S_laser[n] / l * 1e9
 
-        E_flux(Q, E)
-        for j in range(1, jmax - 1):
-            Qs[j] = Q[j] - dtdx * (E[j] - E[j-1]) # 式(6.10)
+        Qn = Q.copy()
 
-        E_flux(Qs, E)
-        for j in range(1, jmax - 2):
-            Q[j] = 0.5 * (Q[j] + Qs[j]) - 0.5 * dtdx * (E[j + 1] - E[j]) # 式(6.10)
+        Roe_flux(Q, Q, E)
+        Q[1:] = Qn[1:] - dtdx * (E[1:] - E[:-1]) + dt * S[1:]  # 式(6.10)
+        boundary_condition(Q)
 
+        Roe_flux(Q, Q, E)
+        Q[:-1] = 0.5 * (Qn[:-1] + Q[:-1]) - 0.5 * (dtdx * (E[1:] - E[:-1]) + dt * S[:-1])  # 式(6.10)
+        boundary_condition(Q)
+
+        # 数値拡散(粘性)項を付加する
         Qb = Q.copy()
         for j in range(1, jmax - 1):
             D1 = Qb[j - 1] - 2.0 * Qb[j] + Qb[j + 1]
             D2 = Qb[j - 1] + 2.0 * Qb[j] + Qb[j + 1]
-            k = eps_c * np.linalg.norm(D1) / np.linalg.norm(D2) # 式(6.12)
-            Q[j] += k * D1 # 式(6.11)
+            k = eps_c * np.linalg.norm(D1) / np.linalg.norm(D2)  # 式(6.12)
+            Q[j] += k * D1  # 式(6.11)
+    return response
 
 
-# 厳密解の計算
+# 衝撃波管問題厳密解の計算
 def strict_answer():
     """
     :return Qext:
     """
+    PI = 1.013e5
+    RHOI = PI / R / T_0
+    UI = 0.0
+    VI = 0.0
+
+    PE = 1.013e4
+    RHOE = PE / R / T_0
+    UE = 0.0
+    VE = 0.0
     Pext = np.zeros([jmax, 3])
     Qext = np.zeros([jmax, 3])
 
@@ -538,77 +584,127 @@ def strict_answer():
     return Qext
 
 
-def output_graphs(Q0, rho, u, p, response):
-    x_laser_last = response['x_laser'][-1]
-    u_ionz = response['u_laser']
-    S_laser = response['S_laser']
-
-    # ### 結果の可視化
+def output_graphs(rho, u, p, n, response=None, T=None, Q0=None, show=False):
+    # x_laser_last = response['x_laser'][-1]
+    # 結果の可視化
     fig = plt.figure(figsize=(10,7), dpi=100)  # グラフのサイズ
     plt.rcParams["font.size"] = 10  # グラフの文字サイズ
+
     ax1 = fig.add_subplot(2, 2, 1)
-    ax1.plot(x * 1e3, Q0[:,0], color='green', linewidth=1.5, label='Numerical')
+    # ax1.plot(x * 1e3, Q0[:,0], color='green', linewidth=1.5, label='Numerical')
     ax1.plot(x * 1e3, rho, color='red', linewidth=1.5, label='Numerical')
     # ax1.plot(x, Qext[:,0], color='black', linewidth = 1.0, linestyle = 'dashed', label = 'Analytical')
     ax1.grid(color='black', linestyle='dotted', linewidth=0.5)
     ax1.set_xlabel('$x$ mm')
     ax1.set_ylabel(r'$\rho$')
-    # ax1.set_xlim([0,1e-5])
-    ax1.axvline(x_laser_last * 1e3, ls="--", color="navy")
+    ax1.set_ylim([0,5])
+    # ax1.axvline(x_laser_last * 1e3, ls="--", color="navy")
     # plt.legend()
 
     ax2 = fig.add_subplot(2, 2, 2)
-    ax2.plot(x * 1e3, Q0[:,1]/Q0[:,0], color='green', linewidth=1.5, label='Numerical')
+    # ax2.plot(x * 1e3, Q0[:,1]/Q0[:,0], color='green', linewidth=1.5, label='Numerical')
     ax2.plot(x * 1e3, u, color='red', linewidth=1.5, label='Numerical')
     # ax2.plot(x, Qext[:,1]/Qext[:,0], color='black', linewidth = 1.0, linestyle = 'dashed', label = 'Analitical')
     ax2.grid(color='black', linestyle='dotted', linewidth=0.5)
     ax2.set_xlabel('$x$ mm')
     ax2.set_ylabel('$u$ km/s')
-    # ax2.set_xlim([0,1e-3])
-    ax2.axvline(x_laser_last * 1e3, ls="--", color="navy")
+    ax2.set_ylim([0,1300])
+    # ax2.axvline(x_laser_last * 1e3, ls="--", color="navy")
     # plt.legend()
 
     ax3 = fig.add_subplot(2, 2, 3)
-    p0 = (gamma - 1.0) * (Q0[:,2] - 0.5 * Q0[:,1] ** 2 / Q0[:,0])  # / 1e5
-    yext = (gamma - 1.0) * (Qext[:,2] - 0.5 * Qext[:,1] ** 2 / Qext[:,0])
-    ax3.plot(x * 1e3, p0 / 1e5, color='green', linewidth=1.5, label='Numerical')
+    # p0 = (gamma - 1.0) * (Q0[:,2] - 0.5 * Q0[:,1] ** 2 / Q0[:,0])  # / 1e5
+    # yext = (gamma - 1.0) * (Qext[:,2] - 0.5 * Qext[:,1] ** 2 / Qext[:,0])
+    # ax3.plot(x * 1e3, p0 / 1e5, color='green', linewidth=1.5, label='Numerical')
     ax3.plot(x * 1e3, p / 1e5, color='red', linewidth=1.5, label='Numerical')
     # ax3.plot(x, yext, color='black', linewidth = 1.0, linestyle = 'dashed',label = 'Analytical')
     ax3.grid(color='black', linestyle='dotted', linewidth=0.5)
     ax3.set_xlabel('$x$ mm')
     ax3.set_ylabel('$p$ atm')
     # ax3.set_xlim([0, 1e-3])
-    # ax3.set_ylim([0, 5])
-    ax3.axvline(x_laser_last * 1e3, ls="--", color="navy")
+    ax3.set_ylim([0, 50])
+    # ax3.axvline(x_laser_last * 1e3, ls="--", color="navy")
 
-    ax4 = fig.add_subplot(2, 2, 4)
-    ax4.plot(S_laser[1:], u_ionz[1:] / 1e3, color='green', linewidth=1.5, label='Numerical')
-    ax4.grid(color='black', linestyle='dotted', linewidth=0.5)
-    ax4.set_xscale('log')
-    ax4.set_yscale('log')
-    ax4.set_xlabel('$S$ GW/m2')
-    ax4.set_ylabel('$u_{ionz}$ km/s')
-    # ax3.set_xlim([0, 1e-3])
-    # ax3.set_ylim([0, 5])
+    if T is not None:
+        ax4 = fig.add_subplot(2, 2, 4)
+        ax4.plot(x * 1e3, T, color='red', linewidth=1.5, label='Numerical')
+        ax4.grid(color='black', linestyle='dotted', linewidth=0.5)
+        ax4.set_xlabel('$x$ mm')
+        ax4.set_ylabel('$T$ K')
+        ax4.set_ylim([0, 20000])
 
     plt.legend()
-    plt.show()
+    fig.savefig(f'1D/fig/img{n}.png')
+    if show:
+        plt.show()
+    plt.clf()
+    plt.close()
+
+    if response is not None:
+        fig = plt.figure(figsize=(10,7), dpi=100)  # グラフのサイズ
+
+        u_ionz = response['u_ionz'][1:]
+        S_laser = response['S_laser'][1:]
+        Plateau = response['Plateau']
+        t = np.arange(0, nmax) * dt
+
+        fig = plt.figure(figsize=(12,4), dpi=100)  # グラフのサイズ
+        plt.rcParams["font.size"] = 10  # グラフの文字サイズ
+
+        ax1 = fig.add_subplot(1, 2, 1)
+        ax1.plot(S_laser[1:], u_ionz[1:] / 1e3, color='green', linewidth=1.5, label='Numerical')
+        ax1.grid(color='black', linestyle='dotted', linewidth=0.5)
+        ax1.set_xscale('log')
+        ax1.set_yscale('log')
+        ax1.set_xlabel('$S$ GW/m2')
+        ax1.set_ylabel('$u_{ionz}$ km/s')
+
+        ax2 = fig.add_subplot(1, 2, 2)
+        ax2.plot(t * 1e6, Plateau / 1e5, color='green', linewidth=1.5, label='Numerical')
+        ax2.grid(color='black', linestyle='dotted', linewidth=0.5)
+        ax2.set_xlabel('$t$ μs')
+        ax2.set_ylabel('Plateau pressure $p$ atm')
+        np.savetxt('1D/csv/plateau_ave.csv', Plateau, fmt='%.2e')
+        fig.savefig('1D/fig/plateau.png')
+
+        plt.clf()
+        plt.close()
+
+
+def make_animation():
+    images = []
+    for i in range(0, nmax):
+        im = Image.open('1D/fig/img' + str(i) + '.png')
+        images.append(im)
+
+    images[0].save('1d_out_original.gif', save_all=True, append_images=images[1:nmax], duration=1, loop=0)
+
 
 if __name__ == '__main__':
     start = time()
-    nmax = 20
     print_interval = 4
 
     order = 2
     kappa = 0
     Q0 = init()
     Q = Q0.copy()
-    response = implicit_solution(Q, order, kappa, nmax, iimax=200)
+
+    os.makedirs('1D/rho', exist_ok=True)
+    os.makedirs('1D/u', exist_ok=True)
+    os.makedirs('1D/p', exist_ok=True)
+    os.makedirs('1D/e', exist_ok=True)
+    os.makedirs('1D/csv', exist_ok=True)
+    os.makedirs('1D/fig', exist_ok=True)
+
+    # response = implicit_solution(Q, order, kappa, nmax, iimax=50)
+    response = explicit_runge(Q, order, kappa, nmax)
+    # response = explicit_maccormack(Q, nmax)  # 非推奨
     print(round(time()-start, 2), 's')
     # Roe_FDS(Q, order, kappa, nmax)
     rho = Q[:, 0]
     u = Q[:, 1] / Q[:, 0]
     p = (gamma - 1.0) * (Q[:, 2] - 0.5 * rho * u**2)  # / 1e5
 
-    Qext = strict_answer()
-    output_graphs(Q0, rho, u, p, response=response)
+    # Qext = strict_answer()
+    output_graphs(rho, u, p, nmax, response=response)
+    make_animation()
